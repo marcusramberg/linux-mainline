@@ -2101,7 +2101,9 @@ static int __qcom_scm_qseecom_call(const struct qcom_scm_desc *desc,
  * @res:  SCM call response (output).
  *
  * Performs the QSEECOM SCM call described by @desc, returning the response in
- * @rsp.
+ * @rsp. The response result is not interpreted here, because what it holds
+ * depends on the command: callers performing app operations have to pass it to
+ * qcom_scm_qseecom_check_result().
  *
  * Return: Zero on success, nonzero on failure.
  */
@@ -2129,16 +2131,30 @@ static int qcom_scm_qseecom_call(const struct qcom_scm_desc *desc,
 		return status;
 	}
 
+	return 0;
+}
+
+static int qcom_scm_qseecom_check_result(u64 result)
+{
 	/*
 	 * TODO: Handle incomplete and blocked calls:
 	 *
 	 * Incomplete and blocked calls are not supported yet. Some devices
-	 * and/or commands require those, some don't. Let's warn about them
-	 * prominently in case someone attempts to try these commands with a
-	 * device/command combination that isn't supported yet.
+	 * and/or commands require those, some don't. Neither is a kernel bug, so
+	 * report them rather than splatting, and rate-limit because a caller
+	 * that hits one will keep hitting it.
 	 */
-	WARN_ON(res->result == QSEECOM_RESULT_INCOMPLETE);
-	WARN_ON(res->result == QSEECOM_RESULT_BLOCKED_ON_LISTENER);
+	if (result == QSEECOM_RESULT_INCOMPLETE) {
+		dev_warn_ratelimited(__scm->dev,
+				     "qseecom: incomplete calls are not supported\n");
+		return -EIO;
+	}
+
+	if (result == QSEECOM_RESULT_BLOCKED_ON_LISTENER) {
+		dev_warn_ratelimited(__scm->dev,
+				     "qseecom: blocked on a busy listener\n");
+		return -EBUSY;
+	}
 
 	return 0;
 }
@@ -2212,7 +2228,10 @@ int qcom_scm_qseecom_app_get_id(const char *app_name, u32 *app_id)
 	desc.args[1] = app_name_len;
 
 	status = qcom_scm_qseecom_call(&desc, &res);
+	if (status)
+		return status;
 
+	status = qcom_scm_qseecom_check_result(res.result);
 	if (status)
 		return status;
 
@@ -2271,7 +2290,10 @@ int qcom_scm_qseecom_app_send(u32 app_id, void *req, size_t req_size,
 	desc.args[4] = rsp_size;
 
 	status = qcom_scm_qseecom_call(&desc, &res);
+	if (status)
+		return status;
 
+	status = qcom_scm_qseecom_check_result(res.result);
 	if (status)
 		return status;
 
