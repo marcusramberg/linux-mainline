@@ -105,27 +105,30 @@
 };
 
 /*
- * DP alt mode output: DECON1 into the DP link. Both off.
+ * DP alt mode output. DECON1 stays off: it does not reset the SoC, but
+ * binding it blanks the panel, because the window block at 0x19480000 and
+ * the sub block at 0x19490000 are one set of registers shared by both
+ * DECONs while exynos9_decon_zuma.c treats them as per-instance -- and
+ * because both DECONs are handed the same single DPP (priv->dpp_dev), so
+ * disabling decon1's unused plane stops the fetch feeding decon0.
  *
- * DECON1 is not merely unused-but-harmless: binding it blanks the panel.
- * The window block at 0x19480000 and the sub block at 0x19490000 are the
- * same registers for both DECONs, but exynos9_decon_zuma.c keeps them as
- * zd_win[id]/zd_sub[id] and initialises them per instance, so decon1's
- * bind writes over decon0's live scanout configuration. DRM state stays
- * consistent throughout -- crtc-0 reads enable=1 active=1 -- while the
- * display is dark.
+ * The DP link is on deliberately, and its reg-names are deliberately left
+ * as they are. The driver looks up "link_base"/"phy_base", so
+ * exynos_drm_dp_init_resources() fails -EINVAL at bind, before any DP
+ * register is touched and before its interrupt is requested. Platform
+ * probe still runs, which enables the DPOSC and DP link PCLK gates for
+ * the first time -- the only new hardware action in the boot.
  *
- * Sharing has to be handled in the driver before DECON1 can come up beside
- * a live pipe. The DP node needs its reg-names settled too: it wants
- * "link_base" and "phy_base", and phy_base is the combo PHY range that
- * usbdrd31_phy owns.
+ * So: a reset here indicts the clock gates, and a clean boot clears them
+ * and points at what bind does instead. Expect the panel to go dark
+ * either way, since a failed component leaves the DRM master unbound.
  */
 &decon1 {
 	status = "disabled";
 };
 
 &dp {
-	status = "disabled";
+	status = "okay";
 };
 
 &dpp0 {
