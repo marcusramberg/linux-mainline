@@ -105,22 +105,23 @@
 };
 
 /*
- * DP alt mode output: DECON1 into the DP link. Enabling both at once reset
- * the SoC five times over, early enough that neither ramoops nor the journal
- * caught anything, so they come back one at a time.
+ * DP alt mode output: DECON1 into the DP link. Both off.
  *
- * DECON1 first, with nothing attached to it: it comes up as a second CRTC
- * beside the live panel pipe and the two share the window and sub register
- * blocks, which is the half of the pair that can be tested without the DP
- * driver running at all. The DPOSC divider reads 39.936MHz, so the clock
- * definitions are sound, but nothing has enabled those gates yet.
+ * DECON1 is not merely unused-but-harmless: binding it blanks the panel.
+ * The window block at 0x19480000 and the sub block at 0x19490000 are the
+ * same registers for both DECONs, but exynos9_decon_zuma.c keeps them as
+ * zd_win[id]/zd_sub[id] and initialises them per instance, so decon1's
+ * bind writes over decon0's live scanout configuration. DRM state stays
+ * consistent throughout -- crtc-0 reads enable=1 active=1 -- while the
+ * display is dark.
  *
- * The DP node also still does not match its driver: it wants reg-names
+ * Sharing has to be handled in the driver before DECON1 can come up beside
+ * a live pipe. The DP node needs its reg-names settled too: it wants
  * "link_base" and "phy_base", and phy_base is the combo PHY range that
- * usbdrd31_phy owns. That has to be settled before it is enabled again.
+ * usbdrd31_phy owns.
  */
 &decon1 {
-	status = "okay";
+	status = "disabled";
 };
 
 &dp {
