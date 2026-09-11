@@ -799,6 +799,9 @@ struct exynos_drm_dp {
 
 	/* vmst */
 	struct drm_bridge		bridge;
+	/* Held, not enabled: ungating these at probe resets the SoC. */
+	struct clk			*dposc;
+	struct clk			*pclk;
 	struct drm_remote		remote[DP_SST_MAX];
 };
 

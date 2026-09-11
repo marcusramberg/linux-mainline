@@ -4655,7 +4655,6 @@ static int exynos_drm_dp_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct exynos_drm_dp *dp;
 
-	struct clk *dposc, *pclk;
 	int ret = 0;
 
 	dp = devm_drm_bridge_alloc(dev, struct exynos_drm_dp, bridge,
@@ -4677,16 +4676,19 @@ static int exynos_drm_dp_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, dp);
 
 	/*
-	 * The link runs off the DP oscillator clock, which the vendor spec
-	 * puts at 40MHz; zuma has no AXI clock for this block at all.
+	 * Taken but not enabled. The link runs off the DP oscillator clock,
+	 * which the vendor spec puts at 40MHz; zuma has no AXI clock for this
+	 * block at all. Ungating either of them at probe resets the SoC, so
+	 * they are left for whoever brings the link up to enable once the
+	 * block is ready for them.
 	 */
-	dposc = devm_clk_get_enabled(dp->dev, "dposc");
-	if (IS_ERR(dposc))
-		return dev_err_probe(dp->dev, PTR_ERR(dposc),
+	dp->dposc = devm_clk_get(dp->dev, "dposc");
+	if (IS_ERR(dp->dposc))
+		return dev_err_probe(dp->dev, PTR_ERR(dp->dposc),
 				     "Could not get dposc clock\n");
-	pclk = devm_clk_get_enabled(dp->dev, "pclk");
-	if (IS_ERR(pclk))
-		return dev_err_probe(dp->dev, PTR_ERR(pclk),
+	dp->pclk = devm_clk_get(dp->dev, "pclk");
+	if (IS_ERR(dp->pclk))
+		return dev_err_probe(dp->dev, PTR_ERR(dp->pclk),
 				     "Could not get pclk clock\n");
 
 	dp_log_info(dev, "is successfully\n");
