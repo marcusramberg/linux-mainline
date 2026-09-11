@@ -105,16 +105,23 @@
 };
 
 /*
- * DP alt mode output: DECON1 into the DP link. Independent of the panel
- * pipe above -- decon0 keeps the DSIM, this one only lights up when a DP
- * sink is plugged in.
+ * DP alt mode output: DECON1 into the DP link. Left off -- enabling both
+ * reset the SoC five times over, early enough that neither ramoops nor the
+ * journal caught anything. Three candidates, none of them ruled out: the
+ * DPOSC clocks being enabled for the first time, the DP interrupt being
+ * requested on a block that is not ready, and DECON1 coming up as a second
+ * CRTC beside the live panel. Re-enable one at a time.
+ *
+ * The DP node is also still wrong for this driver: it wants reg-names
+ * "link_base" and "phy_base", and phy_base is the combo PHY range that
+ * usbdrd31_phy owns.
  */
 &decon1 {
-	status = "okay";
+	status = "disabled";
 };
 
 &dp {
-	status = "okay";
+	status = "disabled";
 };
 
 &dpp0 {
