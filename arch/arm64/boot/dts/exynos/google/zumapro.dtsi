@@ -3656,6 +3656,35 @@
 			status = "disabled";
 		};
 
+		/*
+		 * DisplayPort transmitter. Only the link registers are mapped
+		 * here: the vendor node also claims 0x11130000 and 0x11140000,
+		 * but those are the combo PHY's PMA and TCA, which usbdrd31_phy
+		 * above already maps and programs.
+		 *
+		 * The lanes reach the connector through that PHY, which TCPM
+		 * switches on DP alt mode entry, and AUX through the SBU switch
+		 * in the TCPC. Neither is this node's to describe.
+		 */
+		dp: displayport@110f0000 {
+			compatible = "samsung,exynos910-dp";
+			reg = <0x110f0000 0x6000>;
+			reg-names = "link";
+			interrupts = <GIC_SPI 389 IRQ_TYPE_LEVEL_HIGH 0>;
+			clocks = <&cmu_hsi0 CLK_GOUT_HSI0_DP_LINK_I_DP_OSC_CLK>,
+				 <&cmu_hsi0 CLK_GOUT_HSI0_DP_LINK_I_PCLK>;
+			clock-names = "dposc", "pclk";
+			power-domains = <&pd_hsi0>;
+
+			status = "disabled";
+
+			port {
+				dp_in: endpoint {
+					remote-endpoint = <&decon1_out>;
+				};
+			};
+		};
+
 		usbdrd31: usb@11210000 {
 			compatible = "google,zuma-dwusb3", "google,gs101-dwusb3";
 			ranges = <0x0 0x11210000 0x10000>;
@@ -4325,6 +4354,45 @@
 					reg = <0>;
 					decon0_out: endpoint {
 						remote-endpoint = <&dsim0_in>;
+					};
+				};
+			};
+		};
+
+		/*
+		 * The DP pipe. caiman puts DP on DECON1 rather than the SoC
+		 * default of DECON2 (vendor zuma-caimito-display.dtsi enables
+		 * drmdecon1 with connector = <0x10> and disables drmdecon2).
+		 * Only "main" and "wincon" differ from decon0; the window and
+		 * sub blocks are shared between the two.
+		 */
+		decon1: decon@19471000 {
+			compatible = "google,zuma-decon";
+			reg = <0x19471000 0x6000>,	/* main   */
+			      <0x19480000 0xe000>,	/* win    */
+			      <0x19490000 0x10000>,	/* sub    */
+			      <0x194b0000 0xe000>;	/* wincon */
+			reg-names = "main", "win", "sub", "wincon";
+			/* index 0 is the frame-done interrupt used by the driver */
+			interrupts = <GIC_SPI 247 IRQ_TYPE_LEVEL_HIGH 0>, /* frame_done */
+				     <GIC_SPI 248 IRQ_TYPE_LEVEL_HIGH 0>, /* frame_start */
+				     <GIC_SPI 246 IRQ_TYPE_LEVEL_HIGH 0>; /* extra */
+			interrupt-names = "frame_done", "frame_start", "extra";
+			/* one ACLK_DECON gate serves the whole DPUB block */
+			clocks = <&cmu_dpu CLK_GOUT_DPU_DECON0_ACLK>;
+			clock-names = "aclk";
+			power-domains = <&pd_dpuf0>;
+
+			status = "disabled";
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				port@0 {
+					reg = <0>;
+					decon1_out: endpoint {
+						remote-endpoint = <&dp_in>;
 					};
 				};
 			};
