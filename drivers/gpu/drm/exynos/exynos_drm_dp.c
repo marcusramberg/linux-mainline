@@ -4655,7 +4655,7 @@ static int exynos_drm_dp_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct exynos_drm_dp *dp;
 
-	struct clk *aclk, *pclk;
+	struct clk *dposc, *pclk;
 	int ret = 0;
 
 	dp = devm_drm_bridge_alloc(dev, struct exynos_drm_dp, bridge,
@@ -4676,10 +4676,14 @@ static int exynos_drm_dp_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, dp);
 
-	aclk = devm_clk_get_enabled(dp->dev, "aclk");
-	if (IS_ERR(aclk))
-		return dev_err_probe(dp->dev, PTR_ERR(aclk),
-				     "Could not get aclk clock\n");
+	/*
+	 * The link runs off the DP oscillator clock, which the vendor spec
+	 * puts at 40MHz; zuma has no AXI clock for this block at all.
+	 */
+	dposc = devm_clk_get_enabled(dp->dev, "dposc");
+	if (IS_ERR(dposc))
+		return dev_err_probe(dp->dev, PTR_ERR(dposc),
+				     "Could not get dposc clock\n");
 	pclk = devm_clk_get_enabled(dp->dev, "pclk");
 	if (IS_ERR(pclk))
 		return dev_err_probe(dp->dev, PTR_ERR(pclk),
