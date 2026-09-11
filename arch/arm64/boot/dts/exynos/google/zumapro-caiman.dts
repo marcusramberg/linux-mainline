@@ -105,19 +105,22 @@
 };
 
 /*
- * DP alt mode output: DECON1 into the DP link. Left off -- enabling both
- * reset the SoC five times over, early enough that neither ramoops nor the
- * journal caught anything. Three candidates, none of them ruled out: the
- * DPOSC clocks being enabled for the first time, the DP interrupt being
- * requested on a block that is not ready, and DECON1 coming up as a second
- * CRTC beside the live panel. Re-enable one at a time.
+ * DP alt mode output: DECON1 into the DP link. Enabling both at once reset
+ * the SoC five times over, early enough that neither ramoops nor the journal
+ * caught anything, so they come back one at a time.
  *
- * The DP node is also still wrong for this driver: it wants reg-names
+ * DECON1 first, with nothing attached to it: it comes up as a second CRTC
+ * beside the live panel pipe and the two share the window and sub register
+ * blocks, which is the half of the pair that can be tested without the DP
+ * driver running at all. The DPOSC divider reads 39.936MHz, so the clock
+ * definitions are sound, but nothing has enabled those gates yet.
+ *
+ * The DP node also still does not match its driver: it wants reg-names
  * "link_base" and "phy_base", and phy_base is the combo PHY range that
- * usbdrd31_phy owns.
+ * usbdrd31_phy owns. That has to be settled before it is enabled again.
  */
 &decon1 {
-	status = "disabled";
+	status = "okay";
 };
 
 &dp {
