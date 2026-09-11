@@ -105,30 +105,26 @@
 };
 
 /*
- * DP alt mode output. DECON1 stays off: it does not reset the SoC, but
- * binding it blanks the panel, because the window block at 0x19480000 and
- * the sub block at 0x19490000 are one set of registers shared by both
- * DECONs while exynos9_decon_zuma.c treats them as per-instance -- and
- * because both DECONs are handed the same single DPP (priv->dpp_dev), so
- * disabling decon1's unused plane stops the fetch feeding decon0.
+ * DP alt mode output. Both off, and staying off until the driver is
+ * actually ready for a boot.
  *
- * The DP link is on deliberately, and its reg-names are deliberately left
- * as they are. The driver looks up "link_base"/"phy_base", so
- * exynos_drm_dp_init_resources() fails -EINVAL at bind, before any DP
- * register is touched and before its interrupt is requested. Platform
- * probe still runs, which enables the DPOSC and DP link PCLK gates for
- * the first time -- the only new hardware action in the boot.
+ * Enabling the DP link alone resets the SoC. DECON1 was disabled and the
+ * reg-names were wrong on purpose, so bind failed before any DP register
+ * was read and before its interrupt was requested -- which leaves
+ * enabling the DPOSC and DP link PCLK gates as the only new hardware
+ * action in that boot.
  *
- * So: a reset here indicts the clock gates, and a clean boot clears them
- * and points at what bind does instead. Expect the panel to go dark
- * either way, since a failed component leaves the DRM master unbound.
+ * DECON1 does not reset anything, but binding it blanks the panel: both
+ * DECONs are handed the same DPP (priv->dpp_dev is a single pointer and
+ * only dpp0 exists), so disabling decon1's unused plane stops the fetch
+ * feeding decon0. It needs a DPP of its own first.
  */
 &decon1 {
 	status = "disabled";
 };
 
 &dp {
-	status = "okay";
+	status = "disabled";
 };
 
 &dpp0 {
