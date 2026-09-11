@@ -104,6 +104,19 @@
 	status = "okay";
 };
 
+/*
+ * DP alt mode output: DECON1 into the DP link. Independent of the panel
+ * pipe above -- decon0 keeps the DSIM, this one only lights up when a DP
+ * sink is plugged in.
+ */
+&decon1 {
+	status = "okay";
+};
+
+&dp {
+	status = "okay";
+};
+
 &dpp0 {
 	status = "okay";
 };
