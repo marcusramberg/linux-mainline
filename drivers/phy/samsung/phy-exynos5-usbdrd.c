@@ -365,6 +365,17 @@
 #define TCA_SYSMODE_CFG_TYPEC_CONN_MODE		GENMASK(1, 0)
 #define ZUMA_USBDP_TCA_CTRLSYNCMODE_CFG0	0x20
 #define TCA_CTRLSYNCMODE_CFG0_AUTO_SAFE_STATE	BIT(16)
+/* Handshake state, for when a switch is neither acked nor timed out */
+#define ZUMA_USBDP_TCA_CTRLSYNCMODE_DBG0	0x28
+#define TCA_DBG0_PSTATE_SYNCED			BIT(13)
+#define TCA_DBG0_XBAR_READY			BIT(12)
+#define TCA_DBG0_BLOCK_SS_OP			BIT(8)
+#define TCA_DBG0_SS_RXDET_DISABLE_ACK		BIT(5)
+#define TCA_DBG0_SS_RXDET_DISABLE		BIT(4)
+#define TCA_DBG0_DPALT_DISABLE_ACK		BIT(2)
+#define TCA_DBG0_DPALT_DISABLE			BIT(1)
+/* Per-lane power-state request/ack: SSRX, SSTX, then DP TX0..3 */
+#define ZUMA_USBDP_TCA_PSTATE			0x30
 #define ZUMA_USBDP_TCA_GEN_STATUS		0x34
 
 /* tcpc_mux_control values */
@@ -3490,8 +3501,10 @@ static int zuma_ss_tca_ctrl_sync(struct exynos5_usbdrd_phy *phy_drd, int mux,
 	sts = readl(tca + ZUMA_USBDP_TCA_INTR_STS);
 	if (err)
 		dev_warn(phy_drd->dev,
-			 "TCA switch timeout, mux %d low_power %d (tcpc %#.8x sts %#.8x)\n",
-			 mux, low_power_en, reg, sts);
+			 "TCA switch timeout, mux %d low_power %d (tcpc %#.8x sts %#.8x dbg0 %#.8x pstate %#.8x)\n",
+			 mux, low_power_en, reg, sts,
+			 readl(tca + ZUMA_USBDP_TCA_CTRLSYNCMODE_DBG0),
+			 readl(tca + ZUMA_USBDP_TCA_PSTATE));
 	else
 		dev_dbg(phy_drd->dev, "TCA switch ok, mux %d low_power %d (sts %#.8x)\n",
 			mux, low_power_en, sts);
