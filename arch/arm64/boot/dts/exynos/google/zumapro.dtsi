@@ -3686,12 +3686,16 @@
 			clocks = <&cmu_hsi0 CLK_GOUT_HSI0_DP_LINK_I_DP_OSC_CLK>;
 			clock-names = "dposc";
 			/*
-			 * The HSI0 user mux comes up on oscclk (24.576 MHz).
-			 * Point it at the CMU_TOP divider, which runs at
-			 * 39.936 MHz -- the 40 MHz the link expects.
+			 * Deliberately NOT reparented onto the CMU_TOP DPOSC
+			 * divider, though that is the 40 MHz the link wants.
+			 * clk-zuma puts mout_cmu_hsi0_usb31drd on TOP 0x1090
+			 * and gout_cmu_hsi1_bus on 0x20b8, which the vendor
+			 * CMU tables say are DPOSC's own mux and gate -- so
+			 * walking up that chain reprograms the register a live
+			 * USB or PCIe clock believes is its own, and the SoC
+			 * resets. Fix those offsets before reparenting.
+			 * Until then DPOSC runs from oscclk at 24.576 MHz.
 			 */
-			assigned-clocks = <&cmu_hsi0 CLK_MOUT_HSI0_DPOSC_USER>;
-			assigned-clock-parents = <&cmu_top CLK_DOUT_CMU_HSI0_DPOSC>;
 			power-domains = <&pd_hsi0>;
 
 			status = "disabled";
