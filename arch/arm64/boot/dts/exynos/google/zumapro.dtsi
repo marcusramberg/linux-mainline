@@ -3680,11 +3680,16 @@
 			phys = <&usbdrd31_phy 1>;
 			phy-names = "dp_phy";
 			/*
-			 * DPOSC only. The vendor node takes the same single
-			 * clock and never gates DP_LINK's PCLK.
+			 * DPOSC and the APB clock. The vendor node names only
+			 * DPOSC because their CAL layer drives PCLK through the
+			 * Q-channel (QCH_CON_DP_LINK_QCH_PCLK); mainline's CCF
+			 * has no such path, and clk_summary shows
+			 * gout_hsi0_dp_link_i_pclk gated, so an unclaimed PCLK
+			 * means the first register access takes the SoC down.
 			 */
-			clocks = <&cmu_hsi0 CLK_GOUT_HSI0_DP_LINK_I_DP_OSC_CLK>;
-			clock-names = "dposc";
+			clocks = <&cmu_hsi0 CLK_GOUT_HSI0_DP_LINK_I_DP_OSC_CLK>,
+				 <&cmu_hsi0 CLK_GOUT_HSI0_DP_LINK_I_PCLK>;
+			clock-names = "dposc", "pclk";
 			/*
 			 * Deliberately NOT reparented onto the CMU_TOP DPOSC
 			 * divider, though that is the 40 MHz the link wants.

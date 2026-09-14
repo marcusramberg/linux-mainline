@@ -811,8 +811,9 @@ struct exynos_drm_dp {
 
 	/* vmst */
 	struct drm_bridge		bridge;
-	/* Held at probe, enabled at bring-up: ungating it earlier resets the SoC. */
+	/* Held at probe, enabled at bring-up: ungating earlier resets the SoC. */
 	struct clk			*dposc;
+	struct clk			*pclk;
 	struct drm_remote		remote[DP_SST_MAX];
 };
 

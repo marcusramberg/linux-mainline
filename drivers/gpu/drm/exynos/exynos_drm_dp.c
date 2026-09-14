@@ -4619,6 +4619,12 @@ static int exynos_drm_dp_bind(struct device *dev,
 		dp_log_err(dp->dev, "cannot enable dposc, %d\n", ret);
 		goto err_encoder_init;
 	}
+	ret = clk_prepare_enable(dp->pclk);
+	if (ret < 0) {
+		dp_log_err(dp->dev, "cannot enable pclk, %d\n", ret);
+		clk_disable_unprepare(dp->dposc);
+		goto err_encoder_init;
+	}
 	if (clk_get_rate(dp->dposc) != 40000000)
 		dp_log_err(dp->dev, "dposc is %lu Hz, not 40 MHz\n",
 			   clk_get_rate(dp->dposc));
@@ -4661,6 +4667,7 @@ static void exynos_drm_dp_unbind(struct device *dev, struct device *master,
 
 	disable_irq(subdev->irq);
 
+	clk_disable_unprepare(dp->pclk);
 	clk_disable_unprepare(dp->dposc);
 
 	dp_log_exit(dev);
@@ -4698,14 +4705,20 @@ static int exynos_drm_dp_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, dp);
 
 	/*
-	 * Taken but not enabled: ungating at probe resets the SoC. DPOSC is
-	 * the link's only clock -- the vendor driver takes no other, and in
-	 * particular never touches DP_LINK's PCLK gate.
+	 * Taken but not enabled: ungating at probe resets the SoC. Both are
+	 * needed before the first register access -- DPOSC for the link and
+	 * PCLK for its APB. The vendor DT names only DPOSC because their CAL
+	 * layer drives PCLK off the Q-channel; under CCF an unclaimed PCLK
+	 * just stays gated.
 	 */
 	dp->dposc = devm_clk_get(dp->dev, "dposc");
 	if (IS_ERR(dp->dposc))
 		return dev_err_probe(dp->dev, PTR_ERR(dp->dposc),
 				     "Could not get dposc clock\n");
+	dp->pclk = devm_clk_get(dp->dev, "pclk");
+	if (IS_ERR(dp->pclk))
+		return dev_err_probe(dp->dev, PTR_ERR(dp->pclk),
+				     "Could not get pclk clock\n");
 
 	dp_log_info(dev, "is successfully\n");
 
