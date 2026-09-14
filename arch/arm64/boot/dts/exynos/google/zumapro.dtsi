@@ -3669,11 +3669,21 @@
 		dp: displayport@110f0000 {
 			compatible = "samsung,exynos910-dp";
 			reg = <0x110f0000 0x6000>;
-			reg-names = "link";
+			reg-names = "link_base";
 			interrupts = <GIC_SPI 389 IRQ_TYPE_LEVEL_HIGH 0>;
-			clocks = <&cmu_hsi0 CLK_GOUT_HSI0_DP_LINK_I_DP_OSC_CLK>,
-				 <&cmu_hsi0 CLK_GOUT_HSI0_DP_LINK_I_PCLK>;
-			clock-names = "dposc", "pclk";
+			/*
+			 * DPOSC only. The vendor node takes the same single
+			 * clock and never gates DP_LINK's PCLK.
+			 */
+			clocks = <&cmu_hsi0 CLK_GOUT_HSI0_DP_LINK_I_DP_OSC_CLK>;
+			clock-names = "dposc";
+			/*
+			 * The HSI0 user mux comes up on oscclk (24.576 MHz).
+			 * Point it at the CMU_TOP divider, which runs at
+			 * 39.936 MHz -- the 40 MHz the link expects.
+			 */
+			assigned-clocks = <&cmu_hsi0 CLK_MOUT_HSI0_DPOSC_USER>;
+			assigned-clock-parents = <&cmu_top CLK_DOUT_CMU_HSI0_DPOSC>;
 			power-domains = <&pd_hsi0>;
 
 			status = "disabled";
