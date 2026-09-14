@@ -3672,6 +3672,14 @@
 			reg-names = "link_base";
 			interrupts = <GIC_SPI 389 IRQ_TYPE_LEVEL_HIGH 0>;
 			/*
+			 * The SuperSpeed half of the USB-C combo PHY. The lanes
+			 * are shared with USB3, so the link asks for rate, lane
+			 * count and drive levels through the phy framework
+			 * rather than mapping the PHY itself.
+			 */
+			phys = <&usbdrd31_phy 1>;
+			phy-names = "dp_phy";
+			/*
 			 * DPOSC only. The vendor node takes the same single
 			 * clock and never gates DP_LINK's PCLK.
 			 */
