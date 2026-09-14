@@ -123,8 +123,13 @@
 	status = "disabled";
 };
 
+/*
+ * DECON1 stays off: it has no IDMA channel of its own yet, so it cannot
+ * fetch. The link is still worth enabling alone -- it exercises the DPOSC
+ * clock, the bind, and link training against the combo PHY.
+ */
 &dp {
-	status = "disabled";
+	status = "okay";
 };
 
 &dpp0 {
