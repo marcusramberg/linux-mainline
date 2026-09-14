@@ -4348,6 +4348,7 @@
 			clocks = <&cmu_dpu CLK_GOUT_DPU_DECON0_ACLK>;
 			clock-names = "aclk";
 			power-domains = <&pd_dpuf0>;
+			dpps = <&dpp0>;
 			/*
 			 * The DECON is the CRTC/blender/output block; it issues no
 			 * framebuffer DMA of its own. Memory reads are done by the
