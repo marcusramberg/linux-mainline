@@ -3958,6 +3958,8 @@ static int exynos_drm_dp_start(struct exynos_dp_subdev *dp)
 	int ret = 0;
 
 	dp_log_info(dev, "+, state: %d\n", dp->state);
+
+	dp_log_info(dev, "DPDBG: about to read the first DP link register\n");
 	if (!dp_reg_get_hpd_status(dp->id)) {
 		dp_log_err(dev, "DP(%d) is unplug\n", dp->id);
 		return 0;
@@ -3969,6 +3971,7 @@ static int exynos_drm_dp_start(struct exynos_dp_subdev *dp)
 	}
 	mutex_lock(&dp->pwlock);
 
+	dp_log_info(dev, "DPDBG: link read ok; powering on the combo phy\n");
 	ret = phy_power_on(dp->phy);
 	if (ret < 0) {
 		dp_log_err(dev, "cannot enable DP_PHY[%d], %d\n", dp->id, ret);
@@ -3976,8 +3979,11 @@ static int exynos_drm_dp_start(struct exynos_dp_subdev *dp)
 		return ret;
 	}
 
+	dp_log_info(dev, "DPDBG: phy on; resetting DP link\n");
 	dp_reg_sw_reset(dp->id);
+	dp_log_info(dev, "DPDBG: sw reset done; dp_reg_init\n");
 	dp_reg_init(dp->id);
+	dp_log_info(dev, "DPDBG: dp_reg_init done\n");
 
 	dp_reg_set_hpd_interrupt(dp->id, 1);
 
@@ -4614,17 +4620,30 @@ static int exynos_drm_dp_bind(struct device *dev,
 	 * otherwise, which the SoC answers with a reset. Component bind is
 	 * past both.
 	 */
+	/*
+	 * Loud on purpose. Every attempt so far has taken the SoC down with no
+	 * pstore record from Linux, so the only evidence is whatever reached
+	 * the ramoops console before the reset. Bracket each step that touches
+	 * hardware so the dump says which one it was.
+	 */
+	dp_log_info(dp->dev, "DPDBG: enabling dposc\n");
 	ret = clk_prepare_enable(dp->dposc);
 	if (ret < 0) {
 		dp_log_err(dp->dev, "cannot enable dposc, %d\n", ret);
 		goto err_encoder_init;
 	}
+	dp_log_info(dp->dev, "DPDBG: dposc on at %lu Hz\n",
+		    clk_get_rate(dp->dposc));
+
+	dp_log_info(dp->dev, "DPDBG: enabling pclk\n");
 	ret = clk_prepare_enable(dp->pclk);
 	if (ret < 0) {
 		dp_log_err(dp->dev, "cannot enable pclk, %d\n", ret);
 		clk_disable_unprepare(dp->dposc);
 		goto err_encoder_init;
 	}
+	dp_log_info(dp->dev, "DPDBG: pclk on at %lu Hz\n",
+		    clk_get_rate(dp->pclk));
 	if (clk_get_rate(dp->dposc) != 40000000)
 		dp_log_err(dp->dev, "dposc is %lu Hz, not 40 MHz\n",
 			   clk_get_rate(dp->dposc));
