@@ -3989,9 +3989,8 @@ static int exynos_drm_dp_start(struct exynos_dp_subdev *dp)
 
 	dp_log_info(dev, "+, state: %d\n", dp->state);
 
-	dp_log_info(dev, "DPDBG: about to read the first DP link register\n");
-	if (!dp_reg_get_hpd_status(dp->id)) {
-		dp_log_err(dev, "DP(%d) is unplug\n", dp->id);
+	if (!dp->oob_plugged) {
+		dp_log_info(dev, "DP(%d) has no sink attached\n", dp->id);
 		return 0;
 	}
 
@@ -4016,7 +4015,10 @@ static int exynos_drm_dp_start(struct exynos_dp_subdev *dp)
 	dp_reg_sw_reset(dp->id);
 	dp_log_info(dev, "DPDBG: sw reset done; dp_reg_init\n");
 	dp_reg_init(dp->id);
-	dp_log_info(dev, "DPDBG: dp_reg_init done\n");
+	/* the soft reset wipes SYSTEM_HPD_CONTROL, so re-assert the force */
+	dp_reg_set_hpd_force(dp->id, dp->oob_plugged);
+	dp_log_info(dev, "DPDBG: dp_reg_init done, HPD control %#x\n",
+		    dp_link_read(dp->id, SYSTEM_HPD_CONTROL));
 
 	dp_reg_set_hpd_interrupt(dp->id, 1);
 
@@ -4475,7 +4477,10 @@ static void exynos_drm_dp_bridge_hpd_notify(struct drm_bridge *bridge,
 
 	dp_log_info(dp->dev, "HPD notify: %s\n", plugged ? "plug" : "unplug");
 
+	subdev->oob_plugged = plugged;
 	dp_reg_set_hpd_force(subdev->id, plugged);
+	dp_log_info(dp->dev, "HPD force now %#x\n",
+		    dp_link_read(subdev->id, SYSTEM_HPD_CONTROL));
 
 	if (plugged)
 		queue_delayed_work(subdev->dp_wq, &subdev->hpd_plug_work, 0);
