@@ -4436,6 +4436,7 @@ static const struct drm_bridge_funcs exynos_drm_dp_bridge_funcs = {
 	.mode_set = exynos_drm_dp_bridge_mode_set,
 	.atomic_enable = exynos_drm_dp_bridge_atomic_enable,
 	.atomic_disable = exynos_drm_dp_bridge_atomic_disable,
+	.atomic_create_state = drm_atomic_helper_bridge_create_state,
 	.atomic_duplicate_state = drm_atomic_helper_bridge_duplicate_state,
 	.atomic_destroy_state = drm_atomic_helper_bridge_destroy_state,
 	.atomic_get_input_bus_fmts = drm_atomic_helper_bridge_propagate_bus_fmt,
