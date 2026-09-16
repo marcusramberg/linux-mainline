@@ -346,6 +346,10 @@ int dpu_dma_update(struct exynos_dpu_dma_context *ctx, unsigned int idma,
 		       IDMA_IMG_FORMAT(idma_img_format(fb->format->format)),
 		       IDMA_IMG_FORMAT_MASK);
 
+	pr_info("idma%u: ENABLE 0x%08x IRQ 0x%08x %ux%u @%pad\n", idma,
+		dma_read(ctx, idma, IDMA_ENABLE), dma_read(ctx, idma, IDMA_IRQ),
+		state->src.w, state->src.h, &addr);
+
 	return 0;
 }
 
