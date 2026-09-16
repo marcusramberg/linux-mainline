@@ -4365,6 +4365,7 @@
 			clocks = <&cmu_dpu CLK_GOUT_DPU_DECON0_ACLK>;
 			clock-names = "aclk";
 			power-domains = <&pd_dpuf0>;
+			decon,id = <0>;
 			dpps = <&dpp0>;
 			/*
 			 * The DECON is the CRTC/blender/output block; it issues no
@@ -4410,6 +4411,8 @@
 			clocks = <&cmu_dpu CLK_GOUT_DPU_DECON0_ACLK>;
 			clock-names = "aclk";
 			power-domains = <&pd_dpuf0>;
+			decon,id = <1>;
+			dpps = <&dpp1>;
 
 			status = "disabled";
 
@@ -4451,13 +4454,25 @@
 		};
 
 		/*
-		 * DPP processing block for the GF0 channel. The driver accesses
-		 * regs + 0x1000, so the region base is one channel stride below
-		 * the GF0 DPP block (0x19935000) to land on it.
+		 * DPP processing blocks, one per fetch channel. "dpp,id" is the
+		 * physical DPU channel and indexes all three blocks that make up
+		 * the channel: this DPP (0x19930000 + id * 0x1000), the IDMA in
+		 * dpu_dma (0x19900000 + id * 0x1000), and the DECON's WIN_CHMAP.
 		 */
-		dpp0: dpp@19934000 {
+		dpp0: dpp@19935000 {
 			compatible = "samsung,exynosauto-dpp";
-			reg = <0x19934000 0x2000>;
+			reg = <0x19935000 0x1000>;	/* GF0 */
+			dpp,id = <5>;
+			clocks = <&cmu_dpu CLK_GOUT_DPU_DECON0_ACLK>;
+			clock-names = "aclk";
+			power-domains = <&pd_dpuf0>;
+			status = "disabled";
+		};
+
+		dpp1: dpp@19936000 {
+			compatible = "samsung,exynosauto-dpp";
+			reg = <0x19936000 0x1000>;	/* GF1 */
+			dpp,id = <6>;
 			clocks = <&cmu_dpu CLK_GOUT_DPU_DECON0_ACLK>;
 			clock-names = "aclk";
 			power-domains = <&pd_dpuf0>;
