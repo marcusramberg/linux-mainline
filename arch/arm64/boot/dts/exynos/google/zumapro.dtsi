@@ -3705,9 +3705,29 @@
 
 			status = "disabled";
 
-			port {
-				dp_in: endpoint {
-					remote-endpoint = <&decon1_out>;
+			/*
+			 * One endpoint per SST stream, and the endpoint's reg
+			 * *is* the stream index: the driver looks the CRTC up
+			 * with of_graph_get_endpoint_by_regs(node, 0, sst) for
+			 * sst in DP_SST_1..DP_SST_4, and reads the id back out
+			 * as the stream in exynos_drm_dp_get_sst_idx(). An
+			 * unnumbered endpoint is stream 0, which is
+			 * DP_SST_UNKNOWN and matches nothing, so the encoder
+			 * ends up with possible_crtcs = 0.
+			 */
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				port@0 {
+					reg = <0>;
+					#address-cells = <1>;
+					#size-cells = <0>;
+
+					dp_in: endpoint@1 {
+						reg = <1>;	/* SST1 */
+						remote-endpoint = <&decon1_out>;
+					};
 				};
 			};
 		};
