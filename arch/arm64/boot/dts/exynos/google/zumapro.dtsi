@@ -3691,6 +3691,20 @@
 				 <&cmu_hsi0 CLK_GOUT_HSI0_DP_LINK_I_PCLK>;
 			clock-names = "dposc", "pclk";
 			/*
+			 * The link wants DPOSC at 40MHz; the vendor asserts it
+			 * and the AUX bit timers, the HPD deglitch count and
+			 * the GTC counter are all derived from it.
+			 *
+			 * CMU_TOP already has the chain set up and divided down
+			 * to 39.936MHz (shared2_div2 / 10); only this user mux
+			 * sits on oscclk, so the link has been running at
+			 * 24.576MHz. Reparenting it needs the corrected
+			 * CMU_TOP offsets, since the gate feeding it shares
+			 * 0x20b8 with what clk-zuma called HSI1_BUS.
+			 */
+			assigned-clocks = <&cmu_hsi0 CLK_MOUT_HSI0_DPOSC_USER>;
+			assigned-clock-parents = <&cmu_top CLK_DOUT_CMU_HSI0_DPOSC>;
+			/*
 			 * Deliberately NOT reparented onto the CMU_TOP DPOSC
 			 * divider, though that is the 40 MHz the link wants.
 			 * clk-zuma puts mout_cmu_hsi0_usb31drd on TOP 0x1090
