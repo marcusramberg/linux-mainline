@@ -3992,6 +3992,27 @@ void exynos_drm_dp_stream_enable(struct exynos_dp_subdev *dp, dp_sst_idx_t sst_i
 	dp_reg_start(dp->id, vi->sst_id);
 
 	exynos_drm_dp_set_normal_data(dp);
+
+	/*
+	 * Does the transmitter see a frame? VSYNC_DET and a non-zero MVID
+	 * monitor mean the DECON is feeding the DPIF and the stream clock is
+	 * live; both clear means nothing is flowing at all.
+	 */
+	{
+		u32 off = 0x1000 * vi->sst_id;
+
+		usleep_range(20000, 21000);
+		dp_log_info(dev,
+			    "SST%u: VIDEO_EN %#x TIMING_GEN %#x MUTE %#x MAIN_CTL %#x INT0 %#x INT1 %#x MVID_MON %#x\n",
+			    vi->sst_id + 1,
+			    dp_link_read(dp->id, SST1_VIDEO_ENABLE + off),
+			    dp_link_read(dp->id, SST1_VIDEO_MASTER_TIMING_GEN + off),
+			    dp_link_read(dp->id, SST1_VIDEO_MUTE + off),
+			    dp_link_read(dp->id, SST1_MAIN_CONTROL + off),
+			    dp_link_read(dp->id, SST1_INTERRUPT_STATUS_SET0 + off),
+			    dp_link_read(dp->id, SST1_INTERRUPT_STATUS_SET1 + off),
+			    dp_link_read(dp->id, SST1_MVID_MONITOR + off));
+	}
 }
 
 void exynos_drm_dp_stream_disable(struct exynos_dp_subdev *dp, dp_sst_idx_t sst_idx)
