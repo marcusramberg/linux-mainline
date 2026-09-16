@@ -897,9 +897,11 @@ static int zuma_decon_disable(struct decon_context *ctx)
 	const unsigned long timeout_us = (1000 / 60 * 12 / 10 + 5) * 1000;
 	int ret;
 
-	pr_info("decon%u: disabling, GLOBAL_CON 0x%08x INT_PEND 0x%08x\n", id,
-		zd_main_read(id, ZD_GLOBAL_CON),
-		zd_main_read(id, ZD_DECON_INT_PEND));
+	pr_info("decon%u: disabling, GLOBAL_CON 0x%08x INT_PEND 0x%08x EXTRA 0x%08x SHD_REQ 0x%08x\n",
+		id, zd_main_read(id, ZD_GLOBAL_CON),
+		zd_main_read(id, ZD_DECON_INT_PEND),
+		zd_main_read(id, ZD_DECON_INT_PEND_EXTRA),
+		zd_main_read(id, ZD_SHD_REG_UP_REQ));
 
 	zuma_reg_set_interrupts(id, false);
 
@@ -971,6 +973,12 @@ static void zuma_decon_win_update_req(struct decon_context *ctx, u32 win)
 			   ZD_SHD_REG_UP_REQ_WIN(win));
 }
 
+static u32 zuma_decon_int_pend(struct decon_context *ctx)
+{
+	return zd_main_read(ctx->idx, ZD_DECON_INT_PEND) |
+	       zd_main_read(ctx->idx, ZD_DECON_INT_PEND_EXTRA) << 16;
+}
+
 static u32 zuma_decon_win_status(struct decon_context *ctx, u32 win)
 {
 	/*
@@ -1025,6 +1033,7 @@ const struct decon_cal_ops zuma_decon_cal_ops = {
 	.enable_window		= zuma_decon_enable_window,
 	.disable_window		= zuma_decon_disable_window,
 	.win_update_req		= zuma_decon_win_update_req,
+	.int_pend		= zuma_decon_int_pend,
 	.win_status		= zuma_decon_win_status,
 	.win_update_req_get	= zuma_decon_win_update_req_get,
 	.update_req_global	= zuma_decon_update_req_global,
