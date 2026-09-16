@@ -72,6 +72,23 @@ void dpp_update(struct exynos_dpp_context *dpp,
 	writel(DPP_IMG_HEIGHT(state->src.h) | DPP_IMG_WIDTH(state->src.w),
 	       dpp->regs + DPP_COM_IMG_SIZE);
 
+	/*
+	 * Once per block. Nothing in this driver enables a DPP: GF0 works only
+	 * because the bootloader left its block configured for the splash, so
+	 * compare a never-touched one against it.
+	 */
+	{
+		static unsigned long seen;
+
+		if (!test_and_set_bit(dpp->type, &seen))
+			dev_info(dpp->dev,
+				 "dpp%u: ENABLE 0x%08x IRQ 0x%08x IO_CON 0x%08x IMG_SIZE 0x%08x\n",
+				 dpp->type, readl(dpp->regs + DPP_ENABLE),
+				 readl(dpp->regs + DPP_IRQ),
+				 readl(dpp->regs + DPP_COM_IO_CON),
+				 readl(dpp->regs + DPP_COM_IMG_SIZE));
+	}
+
 	pm_runtime_put_sync(dpp->dev);
 }
 

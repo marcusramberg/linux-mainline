@@ -1546,11 +1546,12 @@ static void decon_vblank_timeout(struct timer_list *t)
 	 * the blender has nothing to send.
 	 */
 	dev_warn_ratelimited(ctx->dev,
-			     "DECON%u frame timed out, completing vblank (int_pend %#x win0 shd_req %#x live %#x)\n",
+			     "DECON%u frame timed out, completing vblank (int_pend %#x win%u shd_req %#x live %#x)\n",
 			     ctx->idx,
 			     ctx->cal_ops->int_pend ? ctx->cal_ops->int_pend(ctx) : 0,
-			     ctx->cal_ops->win_update_req_get(ctx, 0),
-			     ctx->cal_ops->win_status(ctx, 0));
+			     ctx->win[0].idx,
+			     ctx->cal_ops->win_update_req_get(ctx, ctx->win[0].idx),
+			     ctx->cal_ops->win_status(ctx, ctx->win[0].idx));
 
 	drm_crtc_handle_vblank(&ctx->crtc->base);
 }
