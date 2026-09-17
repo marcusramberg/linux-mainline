@@ -4137,6 +4137,14 @@ void exynos_drm_dp_stream_enable(struct exynos_dp_subdev *dp, dp_sst_idx_t sst_i
 			    dp_link_read(dp->id, SST1_INTERRUPT_STATUS_SET0 + off),
 			    dp_link_read(dp->id, SST1_INTERRUPT_STATUS_SET1 + off),
 			    dp_link_read(dp->id, SST1_MVID_MONITOR + off));
+
+		/*
+		 * And does the sink? DP_SINK_STATUS bit 0 is the receiver
+		 * reporting sync to the stream. The dump at the end of
+		 * training runs before the stream exists, so it can only ever
+		 * read 0 there.
+		 */
+		exynos_drm_dp_dpcd_status_dump(dp);
 	}
 }
 
