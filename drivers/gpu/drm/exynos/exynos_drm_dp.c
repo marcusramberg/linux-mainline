@@ -2438,8 +2438,9 @@ static void dp_reg_set_active_symbol(u32 id, u32 sst_id, u32 pixelclock, u8 bpc)
 	TU_on = (TU_off * 1000) / 976;
 
 	cal_log_info(id,
-		     "active symbol in: bpc %u bpp %u clk %u bw %u lanes %u dsc %u -> TU %llu\n",
+		     "active symbol in: bpc %u bpp %u clk %u bw %u lanes %u (mst %#x lane_reg %#x) dsc %u -> TU %llu\n",
 		     bpc, bpp, clk, bandwidth, lanecount,
+		     dp_link_read(id, MST_ENABLE), dp_reg_get_lane_count(id),
 		     is_dsc_en(id, sst_id) ? 1 : 0, TU_off);
 
 	integer_fec_off = (u32)(TU_off / 10000000000);
