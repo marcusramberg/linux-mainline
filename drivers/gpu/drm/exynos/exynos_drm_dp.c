@@ -2428,19 +2428,19 @@ static void dp_reg_set_active_symbol(u32 id, u32 sst_id, u32 pixelclock, u8 bpc)
 	clk = pixelclock / 1000;
 
 	bandwidth = dp_reg_get_ls_clk(id) / 1000;
-	if (dp_link_read(id, MST_ENABLE) & MST_EN)
-		lanecount =
-			MAX_LANE; /* In MST mode, number of lanes become 4 */
-	else
-		lanecount = dp_reg_get_lane_count(id);
+	/*
+	 * Not MST_ENABLE: that register does not exist on this IP and the read
+	 * returns whatever was last on the bus. An MST link trains to four
+	 * lanes anyway, so the lane count already says so.
+	 */
+	lanecount = dp_reg_get_lane_count(id);
 
 	TU_off = ((clk * bpp * 32) * 10000000000) / (lanecount * bandwidth * 8);
 	TU_on = (TU_off * 1000) / 976;
 
 	cal_log_info(id,
-		     "active symbol in: bpc %u bpp %u clk %u bw %u lanes %u (mst %#x lane_reg %#x) dsc %u -> TU %llu\n",
+		     "active symbol in: bpc %u bpp %u clk %u bw %u lanes %u dsc %u -> TU %llu\n",
 		     bpc, bpp, clk, bandwidth, lanecount,
-		     dp_link_read(id, MST_ENABLE), dp_reg_get_lane_count(id),
 		     is_dsc_en(id, sst_id) ? 1 : 0, TU_off);
 
 	integer_fec_off = (u32)(TU_off / 10000000000);
