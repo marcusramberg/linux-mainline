@@ -3269,7 +3269,8 @@ struct dp_dev_data {
 
 int exynos_drm_dp_dump_sfr(struct exynos_dp_subdev *subdev)
 {
-	int acquired;
+	struct device *dev;
+	u32 id;
 
 	if (!subdev || !subdev->dev)
 		return -ENXIO;
@@ -3277,13 +3278,38 @@ int exynos_drm_dp_dump_sfr(struct exynos_dp_subdev *subdev)
 	if (subdev->state == DP_STATE_OFF)
 		return -EBUSY;
 
-	acquired = console_trylock();
+	dev = subdev->dev;
+	id = subdev->id;
 
-	if (subdev->version == V910)
-		// __exynos910_drm_dp_dump_sfr(subdev);
+#define DP_DUMP(reg) \
+	dp_log_info(dev, "%-36s %#010x\n", #reg, dp_link_read(id, reg))
 
-	if (acquired)
-		console_unlock();
+	DP_DUMP(SYSTEM_CLK_CONTROL);
+	DP_DUMP(SYSTEM_PLL_LOCK_CONTROL);
+	DP_DUMP(SYSTEM_MAIN_LINK_LANE_COUNT);
+	DP_DUMP(SYSTEM_SW_FUNCTION_ENABLE);
+	DP_DUMP(SYSTEM_COMMON_FUNCTION_ENABLE);
+	DP_DUMP(SYSTEM_SST1_FUNCTION_ENABLE);
+	DP_DUMP(SYSTEM_HPD_CONTROL);
+	DP_DUMP(PCS_CONTROL);
+	DP_DUMP(PCS_LANE_CONTROL);
+	DP_DUMP(PCS_SNPS_PHY_DATAPATH_CONTROL);
+	DP_DUMP(SST1_MAIN_CONTROL);
+	DP_DUMP(SST1_VIDEO_CONTROL);
+	DP_DUMP(SST1_VIDEO_ENABLE);
+	DP_DUMP(SST1_VIDEO_MASTER_TIMING_GEN);
+	DP_DUMP(SST1_VIDEO_HORIZONTAL_TOTAL_PIXELS);
+	DP_DUMP(SST1_VIDEO_VERTICAL_TOTAL_PIXELS);
+	DP_DUMP(SST1_VIDEO_HORIZONTAL_ACTIVE);
+	DP_DUMP(SST1_VIDEO_VERTICAL_ACTIVE);
+	DP_DUMP(SST1_VIDEO_DEBUG_FSM_STATE);
+	DP_DUMP(SST1_VIDEO_DEBUG_MAPI);
+	DP_DUMP(SST1_MVID_MASTER_MODE);
+	DP_DUMP(SST1_NVID_MASTER_MODE);
+	DP_DUMP(SST1_MVID_MONITOR);
+	DP_DUMP(SST1_INTERRUPT_STATUS_SET0);
+
+#undef DP_DUMP
 
 	return 0;
 }
