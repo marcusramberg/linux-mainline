@@ -2437,6 +2437,11 @@ static void dp_reg_set_active_symbol(u32 id, u32 sst_id, u32 pixelclock, u8 bpc)
 	TU_off = ((clk * bpp * 32) * 10000000000) / (lanecount * bandwidth * 8);
 	TU_on = (TU_off * 1000) / 976;
 
+	cal_log_info(id,
+		     "active symbol in: bpc %u bpp %u clk %u bw %u lanes %u dsc %u -> TU %llu\n",
+		     bpc, bpp, clk, bandwidth, lanecount,
+		     is_dsc_en(id, sst_id) ? 1 : 0, TU_off);
+
 	integer_fec_off = (u32)(TU_off / 10000000000);
 	fraction_fec_off =
 		(u32)((TU_off - (integer_fec_off * 10000000000)) / 10);
@@ -3371,6 +3376,8 @@ int exynos_drm_dp_dump_sfr(struct exynos_dp_subdev *subdev)
 	DP_DUMP(SST1_MVID_MASTER_MODE);
 	DP_DUMP(SST1_NVID_MASTER_MODE);
 	DP_DUMP(SST1_MVID_MONITOR);
+	DP_DUMP(SST1_MVID_SFR_CONFIGURE);
+	DP_DUMP(SST1_NVID_SFR_CONFIGURE);
 	DP_DUMP(MST_ENABLE);
 	DP_DUMP(SST1_ACTIVE_SYMBOL_INTEGER_FEC_OFF);
 	DP_DUMP(SST1_ACTIVE_SYMBOL_FRACTION_FEC_OFF);
