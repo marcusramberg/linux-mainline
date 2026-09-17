@@ -2471,17 +2471,24 @@ static void dp_reg_set_active_symbol(u32 id, u32 sst_id, u32 pixelclock, u8 bpc)
 		fraction_fec_off, ACTIVE_SYMBOL_FRACTION_FEC_OFF);
 	dp_link_write_mask(
 		id, SST1_ACTIVE_SYMBOL_THRESHOLD_FEC_OFF + 0x1000 * sst_id,
-		threshold_fec_off, ACTIVE_SYMBOL_FRACTION_FEC_OFF);
+		threshold_fec_off, ACTIVE_SYMBOL_THRESHOLD_FEC_OFF);
+	/* Without the select, the threshold register above is ignored. */
+	dp_link_write_mask(
+		id, SST1_ACTIVE_SYMBOL_THRESHOLD_SEL_FEC_OFF + 0x1000 * sst_id,
+		~0, ACTIVE_SYMBOL_THRESHOLD_SEL_FEC_OFF);
 
 	dp_link_write_mask(id,
 			   SST1_ACTIVE_SYMBOL_INTEGER_FEC_ON + 0x1000 * sst_id,
 			   integer_fec_on, ACTIVE_SYMBOL_INTEGER_FEC_ON);
 	dp_link_write_mask(id,
 			   SST1_ACTIVE_SYMBOL_FRACTION_FEC_ON + 0x1000 * sst_id,
-			   fraction_fec_on, ACTIVE_SYMBOL_FRACTION_FEC_OFF);
+			   fraction_fec_on, ACTIVE_SYMBOL_FRACTION_FEC_ON);
 	dp_link_write_mask(
 		id, SST1_ACTIVE_SYMBOL_THRESHOLD_FEC_ON + 0x1000 * sst_id,
 		threshold_fec_on, ACTIVE_SYMBOL_THRESHOLD_FEC_ON);
+	dp_link_write_mask(
+		id, SST1_ACTIVE_SYMBOL_THRESHOLD_SEL_FEC_ON + 0x1000 * sst_id,
+		~0, ACTIVE_SYMBOL_THRESHOLD_SEL_FEC_ON);
 }
 
 static void dp_reg_aux_ch_buf_clr(u32 id)
@@ -3364,6 +3371,10 @@ int exynos_drm_dp_dump_sfr(struct exynos_dp_subdev *subdev)
 	DP_DUMP(SST1_MVID_MASTER_MODE);
 	DP_DUMP(SST1_NVID_MASTER_MODE);
 	DP_DUMP(SST1_MVID_MONITOR);
+	DP_DUMP(SST1_ACTIVE_SYMBOL_INTEGER_FEC_OFF);
+	DP_DUMP(SST1_ACTIVE_SYMBOL_FRACTION_FEC_OFF);
+	DP_DUMP(SST1_ACTIVE_SYMBOL_THRESHOLD_FEC_OFF);
+	DP_DUMP(SST1_ACTIVE_SYMBOL_THRESHOLD_SEL_FEC_OFF);
 	DP_DUMP(SST1_INTERRUPT_STATUS_SET0);
 
 #undef DP_DUMP
