@@ -167,6 +167,11 @@ static int dp_altmode_status_update(struct dp_altmode *dp)
 	u8 con = DP_STATUS_CONNECTION(dp->data.status);
 	int ret = 0;
 
+	dev_info(&dp->alt->dev,
+		 "DPDBG status %#010x conf %#010x: con %u hpd %u irq_hpd %u (was hpd %u) configured %u\n",
+		 dp->data.status, dp->data.conf, con, hpd, irq_hpd, dp->hpd,
+		 configured);
+
 	if (configured && (dp->data.status & DP_STATUS_SWITCH_TO_USB)) {
 		dp->data.conf = 0;
 		dp->data_prime.conf = 0;
@@ -187,6 +192,8 @@ static int dp_altmode_status_update(struct dp_altmode *dp)
 				dp->pending_irq_hpd = true;
 		}
 	} else {
+		dev_info(&dp->alt->dev, "DPDBG oob hotplug -> %s\n",
+			 hpd ? "connected" : "disconnected");
 		drm_connector_oob_hotplug_event(dp->connector_fwnode,
 						hpd ? connector_status_connected :
 						      connector_status_disconnected);

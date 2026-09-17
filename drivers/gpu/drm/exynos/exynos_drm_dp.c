@@ -3443,6 +3443,10 @@ static void exynos_drm_dp_hpd_changed(struct exynos_dp_subdev *dp, int state)
 		if (state == HPD_PLUG && dp->detect)
 			dp->detect(dev);
 	} else {
+		/* Ask the sink what it saw, while AUX is still up. */
+		if (dp->training_state)
+			exynos_drm_dp_dpcd_status_dump(dp);
+
 		dp->hpd_state = HPD_UNPLUG;
 		exynos_drm_dp_stop(dp);
 		dp->training_state = false;
