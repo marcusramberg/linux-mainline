@@ -620,6 +620,9 @@ int exynos_drm_dp_link_training(struct exynos_dp_subdev *dp)
 		goto LT_END;
 	}
 
+	/* What the sink thinks of the link it has just trained. */
+	exynos_drm_dp_dpcd_status_dump(dp);
+
 	is_mst = exynos_dp_mst_cap(dp);
 	exynos_dp_dsc_prepare(dp, true);
 	dp_log_info(dev, "exynos_drm_dp_link_training3\n");

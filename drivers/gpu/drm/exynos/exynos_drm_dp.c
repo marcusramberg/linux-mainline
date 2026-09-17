@@ -2438,6 +2438,11 @@ static void dp_reg_set_active_symbol(u32 id, u32 sst_id, u32 pixelclock, u8 bpc)
 	TU_off = ((clk * bpp * 32) * 10000000000) / (lanecount * bandwidth * 8);
 	TU_on = (TU_off * 1000) / 976;
 
+	cal_log_info(id,
+		     "active symbol in: bpc %u bpp %u clk %u bw %u lanes %u dsc %u -> TU %llu\n",
+		     bpc, bpp, clk, bandwidth, lanecount,
+		     is_dsc_en(id, sst_id) ? 1 : 0, TU_off);
+
 	integer_fec_off = (u32)(TU_off / 10000000000);
 	fraction_fec_off =
 		(u32)((TU_off - (integer_fec_off * 10000000000)) / 10);
@@ -3334,7 +3339,8 @@ struct dp_dev_data {
 
 int exynos_drm_dp_dump_sfr(struct exynos_dp_subdev *subdev)
 {
-	int acquired;
+	struct device *dev;
+	u32 id;
 
 	if (!subdev || !subdev->dev)
 		return -ENXIO;
@@ -3342,13 +3348,45 @@ int exynos_drm_dp_dump_sfr(struct exynos_dp_subdev *subdev)
 	if (subdev->state == DP_STATE_OFF)
 		return -EBUSY;
 
-	acquired = console_trylock();
+	dev = subdev->dev;
+	id = subdev->id;
 
-	if (subdev->version == V910)
-		// __exynos910_drm_dp_dump_sfr(subdev);
+#define DP_DUMP(reg) \
+	dp_log_info(dev, "%-36s %#010x\n", #reg, dp_link_read(id, reg))
 
-	if (acquired)
-		console_unlock();
+	DP_DUMP(SYSTEM_CLK_CONTROL);
+	DP_DUMP(SYSTEM_PLL_LOCK_CONTROL);
+	DP_DUMP(SYSTEM_MAIN_LINK_LANE_COUNT);
+	DP_DUMP(SYSTEM_SW_FUNCTION_ENABLE);
+	DP_DUMP(SYSTEM_COMMON_FUNCTION_ENABLE);
+	DP_DUMP(SYSTEM_SST1_FUNCTION_ENABLE);
+	DP_DUMP(SYSTEM_HPD_CONTROL);
+	DP_DUMP(PCS_CONTROL);
+	DP_DUMP(PCS_LANE_CONTROL);
+	DP_DUMP(PCS_SNPS_PHY_DATAPATH_CONTROL);
+	DP_DUMP(SST1_MAIN_CONTROL);
+	DP_DUMP(SST1_VIDEO_CONTROL);
+	DP_DUMP(SST1_VIDEO_ENABLE);
+	DP_DUMP(SST1_VIDEO_MASTER_TIMING_GEN);
+	DP_DUMP(SST1_VIDEO_HORIZONTAL_TOTAL_PIXELS);
+	DP_DUMP(SST1_VIDEO_VERTICAL_TOTAL_PIXELS);
+	DP_DUMP(SST1_VIDEO_HORIZONTAL_ACTIVE);
+	DP_DUMP(SST1_VIDEO_VERTICAL_ACTIVE);
+	DP_DUMP(SST1_VIDEO_DEBUG_FSM_STATE);
+	DP_DUMP(SST1_VIDEO_DEBUG_MAPI);
+	DP_DUMP(SST1_MVID_MASTER_MODE);
+	DP_DUMP(SST1_NVID_MASTER_MODE);
+	DP_DUMP(SST1_MVID_MONITOR);
+	DP_DUMP(SST1_MVID_SFR_CONFIGURE);
+	DP_DUMP(SST1_NVID_SFR_CONFIGURE);
+	DP_DUMP(MST_ENABLE);
+	DP_DUMP(SST1_ACTIVE_SYMBOL_INTEGER_FEC_OFF);
+	DP_DUMP(SST1_ACTIVE_SYMBOL_FRACTION_FEC_OFF);
+	DP_DUMP(SST1_ACTIVE_SYMBOL_THRESHOLD_FEC_OFF);
+	DP_DUMP(SST1_ACTIVE_SYMBOL_THRESHOLD_SEL_FEC_OFF);
+	DP_DUMP(SST1_INTERRUPT_STATUS_SET0);
+
+#undef DP_DUMP
 
 	return 0;
 }
@@ -3480,6 +3518,10 @@ static void exynos_drm_dp_hpd_changed(struct exynos_dp_subdev *dp, int state)
 		if (state == HPD_PLUG && dp->detect)
 			dp->detect(dev);
 	} else {
+		/* Ask the sink what it saw, while AUX is still up. */
+		if (dp->training_state)
+			exynos_drm_dp_dpcd_status_dump(dp);
+
 		dp->hpd_state = HPD_UNPLUG;
 		exynos_drm_dp_stop(dp);
 		dp->training_state = false;
@@ -4095,6 +4137,35 @@ void exynos_drm_dp_stream_enable(struct exynos_dp_subdev *dp, dp_sst_idx_t sst_i
 	dp_reg_start(dp->id, vi->sst_id);
 
 	exynos_drm_dp_set_normal_data(dp);
+
+	/*
+	 * Does the transmitter see a frame? VSYNC_DET and a non-zero MVID
+	 * monitor mean the DECON is feeding the DPIF and the stream clock is
+	 * live; both clear means nothing is flowing at all.
+	 */
+	{
+		u32 off = 0x1000 * vi->sst_id;
+
+		usleep_range(20000, 21000);
+		dp_log_info(dev,
+			    "SST%u: VIDEO_EN %#x TIMING_GEN %#x MUTE %#x MAIN_CTL %#x INT0 %#x INT1 %#x MVID_MON %#x\n",
+			    vi->sst_id + 1,
+			    dp_link_read(dp->id, SST1_VIDEO_ENABLE + off),
+			    dp_link_read(dp->id, SST1_VIDEO_MASTER_TIMING_GEN + off),
+			    dp_link_read(dp->id, SST1_VIDEO_MUTE + off),
+			    dp_link_read(dp->id, SST1_MAIN_CONTROL + off),
+			    dp_link_read(dp->id, SST1_INTERRUPT_STATUS_SET0 + off),
+			    dp_link_read(dp->id, SST1_INTERRUPT_STATUS_SET1 + off),
+			    dp_link_read(dp->id, SST1_MVID_MONITOR + off));
+
+		/*
+		 * And does the sink? DP_SINK_STATUS bit 0 is the receiver
+		 * reporting sync to the stream. The dump at the end of
+		 * training runs before the stream exists, so it can only ever
+		 * read 0 there.
+		 */
+		exynos_drm_dp_dpcd_status_dump(dp);
+	}
 }
 
 void exynos_drm_dp_stream_disable(struct exynos_dp_subdev *dp, dp_sst_idx_t sst_idx)
@@ -4199,6 +4270,7 @@ static int exynos_drm_dp_start(struct exynos_dp_subdev *dp)
 	}
 	mutex_lock(&dp->pwlock);
 
+	dp_log_info(dev, "DPDBG: link read ok; powering on the combo phy\n");
 	ret = phy_set_mode(dp->phy, PHY_MODE_DP);
 	if (ret < 0)
 		dp_log_err(dev, "cannot put the phy in DP mode, %d\n", ret);
@@ -4209,13 +4281,18 @@ static int exynos_drm_dp_start(struct exynos_dp_subdev *dp)
 		return ret;
 	}
 
+	dp_log_info(dev, "DPDBG: phy on; resetting DP link\n");
 	dp_reg_sw_reset(dp->id);
 	dp_reg_set_oscclk_qch_func_en(dp->id, 1);
 	dp_reg_set_osc_clk_div(dp->id, dp->osc_mhz);
 	dp_reg_set_txclk(dp->id, false);
+	dp_log_info(dev, "DPDBG: sw reset done (osc %u MHz); dp_reg_init\n",
+		    dp->osc_mhz);
 	dp_reg_init(dp->id);
 	/* the soft reset wipes SYSTEM_HPD_CONTROL, so re-assert the force */
 	dp_reg_set_hpd_force(dp->id, dp->oob_plugged);
+	dp_log_info(dev, "DPDBG: dp_reg_init done, HPD control %#x\n",
+		    dp_link_read(dp->id, SYSTEM_HPD_CONTROL));
 
 	dp_reg_set_hpd_interrupt(dp->id, 1);
 
@@ -4963,17 +5040,30 @@ static int exynos_drm_dp_bind(struct device *dev,
 	 * otherwise, which the SoC answers with a reset. Component bind is
 	 * past both.
 	 */
+	/*
+	 * Loud on purpose. Every attempt so far has taken the SoC down with no
+	 * pstore record from Linux, so the only evidence is whatever reached
+	 * the ramoops console before the reset. Bracket each step that touches
+	 * hardware so the dump says which one it was.
+	 */
+	dp_log_info(dp->dev, "DPDBG: enabling dposc\n");
 	ret = clk_prepare_enable(dp->dposc);
 	if (ret < 0) {
 		dp_log_err(dp->dev, "cannot enable dposc, %d\n", ret);
 		goto err_encoder_init;
 	}
+	dp_log_info(dp->dev, "DPDBG: dposc on at %lu Hz\n",
+		    clk_get_rate(dp->dposc));
+
+	dp_log_info(dp->dev, "DPDBG: enabling pclk\n");
 	ret = clk_prepare_enable(dp->pclk);
 	if (ret < 0) {
 		dp_log_err(dp->dev, "cannot enable pclk, %d\n", ret);
 		clk_disable_unprepare(dp->dposc);
 		goto err_encoder_init;
 	}
+	dp_log_info(dp->dev, "DPDBG: pclk on at %lu Hz\n",
+		    clk_get_rate(dp->pclk));
 	if (clk_get_rate(dp->dposc) != 40000000)
 		dp_log_err(dp->dev, "dposc is %lu Hz, not 40 MHz\n",
 			   clk_get_rate(dp->dposc));

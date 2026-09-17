@@ -873,10 +873,18 @@ static int zuma_decon_enable(struct decon_context *ctx)
 	/* start (vendor decon_reg_start) */
 	zuma_reg_direct_on_off(id, true);
 	zuma_reg_update_req_global(id);
-	zuma_reg_wait_run_status(id, 20 * 1000);
+	if (zuma_reg_wait_run_status(id, 20 * 1000))
+		pr_warn("decon%u: RUN never asserted (GLOBAL_CON 0x%08x)\n", id,
+			zd_main_read(id, ZD_GLOBAL_CON));
 	zuma_reg_set_trigger(id, &cfg->mode, DECON_TRIG_UNMASK);
 
 	zuma_reg_set_interrupts(id, true);
+
+	pr_info("decon%u: enabled, GLOBAL_CON 0x%08x DATA_PATH_CON_0 0x%08x OF_SIZE_0 0x%08x INT_PEND 0x%08x\n",
+		id, zd_main_read(id, ZD_GLOBAL_CON),
+		zd_main_read(id, ZD_DATA_PATH_CON_0),
+		zd_main_read(id, ZD_OF_SIZE_0),
+		zd_main_read(id, ZD_DECON_INT_PEND));
 
 	return 0;
 }
@@ -888,6 +896,12 @@ static int zuma_decon_disable(struct decon_context *ctx)
 	/* one frame at 60fps + 20% margin, in us */
 	const unsigned long timeout_us = (1000 / 60 * 12 / 10 + 5) * 1000;
 	int ret;
+
+	pr_info("decon%u: disabling, GLOBAL_CON 0x%08x INT_PEND 0x%08x EXTRA 0x%08x SHD_REQ 0x%08x\n",
+		id, zd_main_read(id, ZD_GLOBAL_CON),
+		zd_main_read(id, ZD_DECON_INT_PEND),
+		zd_main_read(id, ZD_DECON_INT_PEND_EXTRA),
+		zd_main_read(id, ZD_SHD_REG_UP_REQ));
 
 	zuma_reg_set_interrupts(id, false);
 
