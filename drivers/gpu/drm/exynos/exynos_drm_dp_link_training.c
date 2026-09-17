@@ -479,12 +479,11 @@ static int exynos_dp_full_link_training(struct exynos_dp_subdev *dp)
 	dp_log_info(dev, "Start Full Link Training + : DP_REV%02x\n", dp->dpcd[DP_DPCD_REV]);
 
 	/*
-	 * This is work-around code when using DP MST serializer.
-	 * Link-training succedds only in SST mode in DP MST with TPS4.
-	 * Added this sequence for Link-Training called by HPD_IRQ event.
+	 * Train in SST and let the MST branch below turn it back on: nothing
+	 * else clears MST_EN, and dp_reg_set_active_symbol() sizes the TU for
+	 * four lanes whenever it reads back set.
 	 */
-	if (drm_dp_tps4_supported(dp->dpcd))
-		dp_reg_set_mst_en(id, 0);
+	dp_reg_set_mst_en(id, 0);
 
 	for (lt_retry_cnt = 0; lt_retry_cnt < LT_RETRY_CNT; lt_retry_cnt++) {
 		if (!dp->hpd_state) {
