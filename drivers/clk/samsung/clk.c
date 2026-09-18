@@ -27,14 +27,10 @@ void samsung_clk_save(void __iomem *base,
 				    unsigned int num_regs)
 {
 	for (; num_regs > 0; --num_regs, ++rd) {
-		if (base) {
-			/* CMUDBG: last offset printed is the one that faulted */
-			pr_info("CMUDBG: save base=%px off=%#lx\n",
-				base, rd->offset);
+		if (base)
 			rd->value = readl(base + rd->offset);
-		} else if (regmap) {
+		else if (regmap)
 			regmap_read(regmap, rd->offset, &rd->value);
-		}
 	}
 }
 
