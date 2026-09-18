@@ -1157,6 +1157,7 @@
 			      <0x11020000 0x1000>;
 			reg-names = "pmu", "cmu", "sysreg";
 			samsung,secure-pd-id = <0x11010204>;
+			samsung,always-on;
 			#power-domain-cells = <0>;
 			label = "HSI0";
 		};
