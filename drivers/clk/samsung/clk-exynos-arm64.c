@@ -379,19 +379,14 @@ int exynos_arm64_cmu_suspend(struct device *dev)
 	struct exynos_arm64_cmu_data *data = dev_get_drvdata(dev);
 	int i;
 
-	/*
-	 * The pclks have to be on before the registers are touched at all:
-	 * CMUs suspend in dpm order, so a parent CMU may already have gated
-	 * this one's feed, and the read then takes an SError.
-	 */
-	for (i = 0; i < data->nr_pclks; i++)
-		clk_prepare_enable(data->pclks[i]);
-
 	samsung_clk_save(data->ctx->reg_base, NULL, data->clk_save,
 			 data->nr_clk_save);
 
 	samsung_clk_save(NULL, data->ctx->sysreg, data->clk_sysreg_save,
 			 data->nr_clk_sysreg);
+
+	for (i = 0; i < data->nr_pclks; i++)
+		clk_prepare_enable(data->pclks[i]);
 
 	exynos_arm64_cmu_prepare_off(data);
 
