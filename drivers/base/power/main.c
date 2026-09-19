@@ -634,6 +634,7 @@ static void dpm_watchdog_handler(struct timer_list *t)
 static void dpm_watchdog_set(struct dpm_watchdog *wd, struct device *dev)
 {
 	struct timer_list *timer = &wd->timer;
+	int cpu;
 
 	if (!dpm_watchdog_enabled)
 		return;
@@ -645,7 +646,20 @@ static void dpm_watchdog_set(struct dpm_watchdog *wd, struct device *dev)
 	timer_setup_on_stack(timer, dpm_watchdog_handler, 0);
 	/* use same timeout value for both suspend and resume */
 	timer->expires = jiffies + HZ * dpm_watchdog_warning_timeout;
-	add_timer(timer);
+	/*
+	 * Arm on a CPU other than the one about to run the callback: add_timer()
+	 * queues on the current CPU's timer wheel, so a device whose suspend
+	 * method wedges the bus also silently disarms the watchdog meant to catch
+	 * it -- verified on caiman, where the dpm_suspend_start() phase stalled
+	 * with a 20 s watchdog armed and neither warned nor panicked. The
+	 * handler dumps wd->tsk, which is the stalled task whichever CPU
+	 * expires the timer.
+	 */
+	cpu = cpumask_any_but(cpu_online_mask, raw_smp_processor_id());
+	if (cpu < nr_cpu_ids)
+		add_timer_on(timer, cpu);
+	else
+		add_timer(timer);
 }
 
 /**
