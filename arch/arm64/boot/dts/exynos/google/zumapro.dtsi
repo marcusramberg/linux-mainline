@@ -899,6 +899,16 @@
 		};
 	};
 
+	/*
+	 * Publishes kallsyms and other kernel layout to the reserved region the
+	 * debug-snapshot firmware reads after a reset (debug_kinfo_reserved).
+	 * Node and address as downstream's zumapro-debug.dtsi has them.
+	 */
+	debug-kinfo {
+		compatible = "google,debug-kinfo";
+		memory-region = <&debug_kinfo_reserved>;
+	};
+
 	soc: soc@0 {
 		compatible = "simple-bus";
 		#address-cells = <1>;

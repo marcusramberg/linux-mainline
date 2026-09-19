@@ -51,6 +51,23 @@ config ANDROID_BINDER_DEVICES
 	  created. Each binder device has its own context manager, and is
 	  therefore logically separated from the other devices.
 
+config ANDROID_DEBUG_KINFO
+	bool "Android Debug Kernel Information Support"
+	depends on KALLSYMS
+	help
+	  This supports kernel information backup for bootloader usage.
+	  Specifics:
+	   - The kallsyms symbols for unwind_backtrace
+	   - Page directory pointer
+	   - UTS_RELEASE
+	   - Build info
+
+	  The Zumapro debug-snapshot firmware reads this table out of a reserved
+	  region when it collects a dump after a reset; without it the dump says
+	  "linux debug info is not valid" and resolves nothing.
+
+	  If unsure, say N.
+
 config ANDROID_BINDER_ALLOC_KUNIT_TEST
 	tristate "KUnit Tests for Android Binder Alloc" if !KUNIT_ALL_TESTS
 	depends on ANDROID_BINDER_IPC && KUNIT
