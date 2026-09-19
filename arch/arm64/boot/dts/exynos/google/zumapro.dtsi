@@ -986,6 +986,7 @@
 		};
 		pd_dpub: power-domain@15461d00 {
 			compatible = "google,zumapro-pd";
+			samsung,always-on; /* CONFIRM: diagnostic, keep every domain powered */
 			reg = <0x15461d00 0x20>,
 			      <0x19400000 0x10000>,
 			      <0x19420000 0x1000>;
@@ -996,6 +997,7 @@
 		};
 		pd_dpuf0: power-domain@15461d80 {
 			compatible = "google,zumapro-pd";
+			samsung,always-on; /* CONFIRM: diagnostic, keep every domain powered */
 			reg = <0x15461d80 0x20>,
 			      <0x19800000 0x8000>,
 			      <0x19820000 0x1000>;
@@ -1007,6 +1009,7 @@
 		};
 		pd_dpuf1: power-domain@15461e00 {
 			compatible = "google,zumapro-pd";
+			samsung,always-on; /* CONFIRM: diagnostic, keep every domain powered */
 			reg = <0x15461e00 0x20>,
 			      <0x19c00000 0x8000>,
 			      <0x19c20000 0x1000>;
@@ -1018,6 +1021,7 @@
 		};
 		pd_g2d: power-domain@15461e80 {
 			compatible = "google,zumapro-pd";
+			samsung,always-on; /* CONFIRM: diagnostic, keep every domain powered */
 			reg = <0x15461e80 0x20>,
 			      <0x1a800000 0x10000>,
 			      <0x1a820000 0x1000>;
@@ -1028,6 +1032,7 @@
 		};
 		pd_gdc: power-domain@15461f00 {
 			compatible = "google,zumapro-pd";
+			samsung,always-on; /* CONFIRM: diagnostic, keep every domain powered */
 			reg = <0x15461f00 0x20>,
 			      <0x1d400000 0x10000>,
 			      <0x1d420000 0x1000>;
@@ -1038,6 +1043,7 @@
 		};
 		pd_gse: power-domain@15461f80 {
 			compatible = "google,zumapro-pd";
+			samsung,always-on; /* CONFIRM: diagnostic, keep every domain powered */
 			reg = <0x15461f80 0x20>,
 			      <0x1d800000 0x10000>,
 			      <0x1d820000 0x1000>;
@@ -1048,6 +1054,7 @@
 		};
 		pd_mcsc: power-domain@15462000 {
 			compatible = "google,zumapro-pd";
+			samsung,always-on; /* CONFIRM: diagnostic, keep every domain powered */
 			reg = <0x15462000 0x20>,
 			      <0x1d000000 0x10000>,
 			      <0x1d020000 0x1000>;
@@ -1058,6 +1065,7 @@
 		};
 		pd_mfc: power-domain@15462080 {
 			compatible = "google,zumapro-pd";
+			samsung,always-on; /* CONFIRM: diagnostic, keep every domain powered */
 			reg = <0x15462080 0x20>,
 			      <0x1a400000 0x10000>,
 			      <0x1a420000 0x1000>;
@@ -1068,6 +1076,7 @@
 		};
 		pd_rgbp: power-domain@15462100 {
 			compatible = "google,zumapro-pd";
+			samsung,always-on; /* CONFIRM: diagnostic, keep every domain powered */
 			reg = <0x15462100 0x20>,
 			      <0x1c400000 0x10000>,
 			      <0x1c420000 0x1000>;
@@ -1078,6 +1087,7 @@
 		};
 		pd_tnr: power-domain@15462180 {
 			compatible = "google,zumapro-pd";
+			samsung,always-on; /* CONFIRM: diagnostic, keep every domain powered */
 			reg = <0x15462180 0x20>,
 			      <0x1cc00000 0x10000>,
 			      <0x1cc20000 0x1000>;
@@ -1088,6 +1098,7 @@
 		};
 		pd_yuvp: power-domain@15462200 {
 			compatible = "google,zumapro-pd";
+			samsung,always-on; /* CONFIRM: diagnostic, keep every domain powered */
 			reg = <0x15462200 0x20>,
 			      <0x1c800000 0x10000>,
 			      <0x1c820000 0x1000>;
@@ -1109,6 +1120,7 @@
 		};
 		pd_aur: power-domain@15462300 {
 			compatible = "google,zumapro-pd";
+			samsung,always-on; /* CONFIRM: diagnostic, keep every domain powered */
 			reg = <0x15462300 0x20>,
 			      <0x20a00000 0x10000>,
 			      <0x20a40000 0x1000>;
@@ -1119,6 +1131,7 @@
 		};
 		pd_bw: power-domain@15462380 {
 			compatible = "google,zumapro-pd";
+			samsung,always-on; /* CONFIRM: diagnostic, keep every domain powered */
 			reg = <0x15462380 0x20>,
 			      <0x1a600000 0x10000>,
 			      <0x1a620000 0x1000>;
@@ -1129,6 +1142,7 @@
 		};
 		pd_eh: power-domain@15462400 {
 			compatible = "google,zumapro-pd";
+			samsung,always-on; /* CONFIRM: diagnostic, keep every domain powered */
 			reg = <0x15462400 0x20>,
 			      <0x16c00000 0x10000>,
 			      <0x16c20000 0x1000>;
@@ -1139,6 +1153,7 @@
 		};
 		pd_ispfe: power-domain@15462480 {
 			compatible = "google,zumapro-pd";
+			samsung,always-on; /* CONFIRM: diagnostic, keep every domain powered */
 			reg = <0x15462480 0x20>,
 			      <0x1c000000 0x10000>,
 			      <0x1c020000 0x1000>;
@@ -1149,6 +1164,7 @@
 		};
 		pd_tpu: power-domain@15462500 {
 			compatible = "google,zumapro-pd";
+			samsung,always-on; /* CONFIRM: diagnostic, keep every domain powered */
 			reg = <0x15462500 0x20>,
 			      <0x1a300000 0x10000>,
 			      <0x1a320000 0x1000>;
@@ -1159,6 +1175,7 @@
 		};
 		pd_hsi0: power-domain@15462a80 {
 			compatible = "google,zumapro-pd";
+			samsung,always-on; /* CONFIRM: diagnostic, keep every domain powered */
 			reg = <0x15462a80 0x20>,
 			      <0x11000000 0x10000>,
 			      <0x11020000 0x1000>;
