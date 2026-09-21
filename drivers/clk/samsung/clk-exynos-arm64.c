@@ -379,10 +379,6 @@ int exynos_arm64_cmu_suspend(struct device *dev)
 	struct exynos_arm64_cmu_data *data = dev_get_drvdata(dev);
 	int i;
 
-	/* CMUDBG: last line before the SError names the CMU that faulted */
-	dev_info(dev, "CMUDBG: suspend, saving regs at %px\n",
-		 data->ctx->reg_base);
-
 	samsung_clk_save(data->ctx->reg_base, NULL, data->clk_save,
 			 data->nr_clk_save);
 
