@@ -1975,6 +1975,7 @@ static int qcom_geni_serial_suspend(struct device *dev)
 	struct qcom_geni_serial_port *port = dev_get_drvdata(dev);
 	struct uart_port *uport = &port->uport;
 	struct qcom_geni_private_data *private_data = uport->private_data;
+	int ret;
 
 	/*
 	 * This is done so we can hit the lowest possible state in suspend
@@ -1984,7 +1985,25 @@ static int qcom_geni_serial_suspend(struct device *dev)
 		geni_icc_set_tag(&port->se, QCOM_ICC_TAG_ACTIVE_ONLY);
 		geni_icc_set_bw(&port->se);
 	}
-	return uart_suspend_port(private_data->drv, uport);
+	ret = uart_suspend_port(private_data->drv, uport);
+
+	/*
+	 * The dedicated wake IRQ watches an edge on RX and that edge latches
+	 * even while the IRQ is masked, so any traffic seen on the way down
+	 * leaves it pending. dpm_suspend_noirq() arms the wake IRQ before it
+	 * runs a single noirq callback, so an already pending edge fires at
+	 * once and aborts the suspend -- and does so on every retry, since the
+	 * next attempt latches the same way. Devices below this port have
+	 * suspended by the time we get here (a Bluetooth controller on this
+	 * UART has completed its in-band sleep handshake) and the line is
+	 * idle, so drop the stale edge. An edge asserted after this point
+	 * latches as usual and still wakes the system.
+	 */
+	if (!ret && port->wakeup_irq > 0)
+		irq_set_irqchip_state(port->wakeup_irq, IRQCHIP_STATE_PENDING,
+				      false);
+
+	return ret;
 }
 
 static int qcom_geni_serial_resume(struct device *dev)
