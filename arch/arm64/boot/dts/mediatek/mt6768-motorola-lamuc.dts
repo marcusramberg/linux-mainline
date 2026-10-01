@@ -119,6 +119,17 @@
 	};
 };
 
+&usb2 {
+	/* no Type-C/charger driver to switch roles, so always a gadget */
+	dr_mode = "peripheral";
+	/delete-property/ usb-role-switch;
+	status = "okay";
+};
+
+&usb2phy {
+	status = "okay";
+};
+
 /*
  * lk's display keeps scanning out its framebuffer by physical address.
  * Probing the pipeline attaches it to the IOMMU and the scanout faults,
