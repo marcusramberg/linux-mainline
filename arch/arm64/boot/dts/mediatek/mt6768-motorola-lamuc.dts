@@ -118,3 +118,14 @@
 		pmsg-size = <0x80000>;
 	};
 };
+
+&usb2 {
+	/* no Type-C/charger driver to switch roles, so always a gadget */
+	dr_mode = "peripheral";
+	/delete-property/ usb-role-switch;
+	status = "okay";
+};
+
+&usb2phy {
+	status = "okay";
+};
