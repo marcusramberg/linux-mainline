@@ -1,0 +1,120 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Motorola Moto G17 (lamuc), booted from U-Boot chainloaded by stock lk.
+ * Minimal: no PMIC, so nothing touches the regulators lk left on.
+ */
+
+/dts-v1/;
+
+#include "mt6768.dtsi"
+
+/ {
+	model = "Motorola Moto G17";
+	compatible = "motorola,lamuc", "mediatek,mt6768";
+
+	chosen {
+		/* lk's second framebuffer page, what the panel scans out */
+		framebuffer@77916000 {
+			compatible = "simple-framebuffer";
+			reg = <0 0x77916000 0 (1080 * 2400 * 4)>;
+			width = <1080>;
+			height = <2400>;
+			stride = <(1080 * 4)>;
+			format = "a8r8g8b8";
+		};
+	};
+
+	/* replaced by U-Boot with lk's figure */
+	memory@40000000 {
+		device_type = "memory";
+		reg = <0 0x40000000 0 0x3e000000>;
+	};
+};
+
+/*
+ * lk's mblock reservations (recon/lk-memory-map.txt). Listing them here,
+ * with no-map, makes U-Boot skip its own copies, which carry no no-map.
+ */
+&{/reserved-memory} {
+	ap-md-c-smem@6e000000 {
+		reg = <0x0 0x6e000000 0x0 0x01620000>;
+		no-map;
+	};
+	ap-md-nc-smem@70000000 {
+		reg = <0x0 0x70000000 0x0 0x008e0000>;
+		no-map;
+	};
+	md-mem-usage@a2000000 {
+		reg = <0x0 0xa2000000 0x0 0x10000000>;
+		no-map;
+	};
+	ccci-tag-mem@9fff0000 {
+		reg = <0x0 0x9fff0000 0x0 0x00010000>;
+		no-map;
+	};
+	scp@9f900000 {
+		reg = <0x0 0x9f900000 0x0 0x00600000>;
+		no-map;
+	};
+	spm@75510000 {
+		reg = <0x0 0x75510000 0x0 0x00010000>;
+		no-map;
+	};
+	framebuffer@76f20000 {
+		reg = <0x0 0x76f20000 0x0 0x022e0000>;
+		no-map;
+	};
+	minirdump@4d0f0000 {
+		reg = <0x0 0x4d0f0000 0x0 0x00010000>;
+		no-map;
+	};
+	aee-debug-kinfo@4d000000 {
+		reg = <0x0 0x4d000000 0x0 0x00010000>;
+		no-map;
+	};
+	tee@79200000 {
+		reg = <0x0 0x79200000 0x0 0x05600000>;
+		no-map;
+	};
+	sspm@7eb00000 {
+		reg = <0x0 0x7eb00000 0x0 0x000c0000>;
+		no-map;
+	};
+	tee-secmem@7e800000 {
+		reg = <0x0 0x7e800000 0x0 0x00200000>;
+		no-map;
+	};
+	atf-log@bff40000 {
+		reg = <0x0 0xbff40000 0x0 0x00040000>;
+		no-map;
+	};
+	atf-ramdump@bff80000 {
+		reg = <0x0 0xbff80000 0x0 0x00080000>;
+		no-map;
+	};
+	atf@4ce00000 {
+		reg = <0x0 0x4ce00000 0x0 0x00060000>;
+		no-map;
+	};
+	log-store@7ebc0000 {
+		reg = <0x0 0x7ebc0000 0x0 0x00040000>;
+		no-map;
+	};
+	gz-log@7ea00000 {
+		reg = <0x0 0x7ea00000 0x0 0x00041000>;
+		no-map;
+	};
+	gz@7ec00000 {
+		reg = <0x0 0x7ec00000 0x0 0x01400000>;
+		no-map;
+	};
+
+	/* console zone at +0x20000 is where U-Boot's memlog writes too */
+	ramoops@4d010000 {
+		compatible = "ramoops";
+		reg = <0 0x4d010000 0 0xe0000>;
+		record-size = <0x10000>;
+		console-size = <0x40000>;
+		pmsg-size = <0x80000>;
+	};
+};
