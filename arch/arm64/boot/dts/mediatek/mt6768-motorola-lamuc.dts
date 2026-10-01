@@ -118,3 +118,48 @@
 		pmsg-size = <0x80000>;
 	};
 };
+
+/*
+ * lk's display keeps scanning out its framebuffer by physical address.
+ * Probing the pipeline attaches it to the IOMMU and the scanout faults,
+ * so leave it alone and let simple-framebuffer draw into it.
+ */
+&aal0 {
+	status = "disabled";
+};
+
+&ccorr0 {
+	status = "disabled";
+};
+
+&color0 {
+	status = "disabled";
+};
+
+&dither0 {
+	status = "disabled";
+};
+
+&gamma0 {
+	status = "disabled";
+};
+
+&mutex {
+	status = "disabled";
+};
+
+&ovl0 {
+	status = "disabled";
+};
+
+&ovl_2l0 {
+	status = "disabled";
+};
+
+&rdma0 {
+	status = "disabled";
+};
+
+&wdma0 {
+	status = "disabled";
+};
