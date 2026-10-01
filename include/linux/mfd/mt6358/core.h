@@ -20,6 +20,7 @@ struct pmic_irq_data {
 	unsigned int num_top;
 	unsigned int num_pmic_irqs;
 	unsigned short top_int_status_reg;
+	unsigned short top_int_mask_set_reg;
 	bool *enable_hwirq;
 	bool *cache_hwirq;
 	const struct irq_top_t *pmic_ints;
