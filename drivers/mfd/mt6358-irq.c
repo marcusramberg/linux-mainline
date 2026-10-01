@@ -55,6 +55,7 @@ static struct pmic_irq_data mt6357_irqd = {
 	.num_top = ARRAY_SIZE(mt6357_ints),
 	.num_pmic_irqs = MT6357_IRQ_NR,
 	.top_int_status_reg = MT6357_TOP_INT_STATUS0,
+	.top_int_mask_set_reg = MT6357_TOP_INT_MASK_CON0_SET,
 	.pmic_ints = mt6357_ints,
 };
 
@@ -62,6 +63,7 @@ static struct pmic_irq_data mt6358_irqd = {
 	.num_top = ARRAY_SIZE(mt6358_ints),
 	.num_pmic_irqs = MT6358_IRQ_NR,
 	.top_int_status_reg = MT6358_TOP_INT_STATUS0,
+	.top_int_mask_set_reg = MT6358_TOP_INT_MASK_CON0_SET,
 	.pmic_ints = mt6358_ints,
 };
 
@@ -69,6 +71,7 @@ static struct pmic_irq_data mt6359_irqd = {
 	.num_top = ARRAY_SIZE(mt6359_ints),
 	.num_pmic_irqs = MT6359_IRQ_NR,
 	.top_int_status_reg = MT6359_TOP_INT_STATUS0,
+	.top_int_mask_set_reg = MT6359_TOP_INT_MASK_CON0_SET,
 	.pmic_ints = mt6359_ints,
 };
 
@@ -140,7 +143,7 @@ static struct irq_chip mt6358_irq_chip = {
 static void mt6358_irq_sp_handler(struct mt6397_chip *chip,
 				  unsigned int top_gp)
 {
-	unsigned int irq_status, sta_reg, status;
+	unsigned int irq_status, sta_reg, en_reg, status;
 	unsigned int hwirq, virq;
 	int i, j, ret;
 	struct pmic_irq_data *irqd = chip->irq_data;
@@ -148,6 +151,8 @@ static void mt6358_irq_sp_handler(struct mt6397_chip *chip,
 	for (i = 0; i < irqd->pmic_ints[top_gp].num_int_regs; i++) {
 		sta_reg = irqd->pmic_ints[top_gp].sta_reg +
 			irqd->pmic_ints[top_gp].sta_reg_shift * i;
+		en_reg = irqd->pmic_ints[top_gp].en_reg +
+			irqd->pmic_ints[top_gp].en_reg_shift * i;
 
 		ret = regmap_read(chip->regmap, sta_reg, &irq_status);
 		if (ret) {
@@ -167,8 +172,22 @@ static void mt6358_irq_sp_handler(struct mt6397_chip *chip,
 				MTK_PMIC_REG_WIDTH * i + j;
 
 			virq = irq_find_mapping(chip->irq_domain, hwirq);
-			if (virq)
+			if (virq) {
 				handle_nested_irq(virq);
+			} else {
+				/*
+				 * Nobody claimed this interrupt. Acknowledging
+				 * it is not enough if its source keeps
+				 * asserting: since the parent interrupt is
+				 * level triggered, that would retrigger this
+				 * handler forever. Disable the source instead.
+				 */
+				dev_warn_ratelimited(chip->dev,
+						     "Disabling unclaimed IRQ %u\n",
+						     hwirq);
+				regmap_update_bits(chip->regmap, en_reg,
+						   BIT(j), 0);
+			}
 
 			status &= ~BIT(j);
 		} while (status);
@@ -203,6 +222,20 @@ static irqreturn_t mt6358_irq_handler(int irq, void *data)
 		}
 	}
 
+	if (top_irq_status) {
+		/*
+		 * A top level group that this driver does not describe is
+		 * asserting. There is no way to acknowledge it, and the parent
+		 * interrupt is level triggered, so mask the group off to avoid
+		 * an interrupt storm.
+		 */
+		dev_warn_ratelimited(chip->dev,
+				     "Masking unserviced top level IRQ groups %#x\n",
+				     top_irq_status);
+		regmap_write(chip->regmap, irqd->top_int_mask_set_reg,
+			     top_irq_status);
+	}
+
 	return IRQ_HANDLED;
 }
 
@@ -226,6 +259,7 @@ static const struct irq_domain_ops mt6358_irq_domain_ops = {
 
 int mt6358_irq_init(struct mt6397_chip *chip)
 {
+	unsigned int top_mask;
 	int i, j, ret;
 	struct pmic_irq_data *irqd;
 
@@ -265,12 +299,23 @@ int mt6358_irq_init(struct mt6397_chip *chip)
 		return -ENOMEM;
 
 	/* Disable all interrupts for initializing */
+	top_mask = GENMASK(MTK_PMIC_REG_WIDTH - 1, 0);
 	for (i = 0; i < irqd->num_top; i++) {
 		for (j = 0; j < irqd->pmic_ints[i].num_int_regs; j++)
 			regmap_write(chip->regmap,
 				     irqd->pmic_ints[i].en_reg +
 				     irqd->pmic_ints[i].en_reg_shift * j, 0);
+
+		top_mask &= ~BIT(irqd->pmic_ints[i].top_offset);
 	}
+
+	/*
+	 * Mask the top level interrupt groups that are not described here:
+	 * their status registers are unknown, so they could never be
+	 * acknowledged, and the parent interrupt being level triggered they
+	 * would keep retriggering forever.
+	 */
+	regmap_write(chip->regmap, irqd->top_int_mask_set_reg, top_mask);
 
 	chip->irq_domain = irq_domain_create_linear(dev_fwnode(chip->dev), irqd->num_pmic_irqs,
 						    &mt6358_irq_domain_ops, chip);
