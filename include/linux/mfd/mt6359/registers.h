@@ -12,6 +12,7 @@
 #define MT6359_TOP_RST_MISC                  0x14c
 #define MT6359_MISC_TOP_INT_CON0             0x188
 #define MT6359_MISC_TOP_INT_STATUS0          0x194
+#define MT6359_TOP_INT_MASK_CON0_SET         0x19a
 #define MT6359_TOP_INT_STATUS0               0x19e
 #define MT6359_SCK_TOP_INT_CON0              0x528
 #define MT6359_SCK_TOP_INT_STATUS0           0x534
