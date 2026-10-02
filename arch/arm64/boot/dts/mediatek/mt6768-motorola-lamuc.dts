@@ -9,6 +9,7 @@
 #include "mt6768.dtsi"
 #include "mt6358.dtsi"
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/usb/pd.h>
 
 / {
 	model = "Motorola Moto G17";
@@ -220,6 +221,36 @@
 
 /* microSD, conservatively: high speed only */
 /* pins muxed by the bootloader, as in the vendor DT */
+&i2c6 {
+	clock-frequency = <400000>;
+	status = "okay";
+
+	/*
+	 * CPS8851, an RT1711H-style TCPC (VID 0x315c). The vendor DT puts it
+	 * at 0x4a and an sc2150 at 0x4e; on this unit only 0x4e answers, with
+	 * the CPS8851 IDs.
+	 */
+	typec@4e {
+		compatible = "convenientpower,cps8851";
+		reg = <0x4e>;
+		interrupts-extended = <&pio 4 IRQ_TYPE_LEVEL_LOW>;
+
+		connector {
+			compatible = "usb-c-connector";
+			label = "USB-C";
+			/* sink only until VBUS out (charger boost) is wired up */
+			power-role = "sink";
+			/* PD hard reset resets the CPS8851's registers; TCPM then loses the port */
+			pd-disable;
+			typec-power-opmode = "default";
+			self-powered;
+			data-role = "device";
+			sink-pdos = <PDO_FIXED(5000, 2000, PDO_FIXED_USB_COMM)>;
+			op-sink-microwatt = <10000000>;
+		};
+	};
+};
+
 &i2c7 {
 	clock-frequency = <400000>;
 	status = "okay";
