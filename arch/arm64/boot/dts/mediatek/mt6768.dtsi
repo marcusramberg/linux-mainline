@@ -330,7 +330,7 @@
 				 <&topckgen CLK_TOP_ARMPLL_DIVIDER_PLL1>;
 			clock-names = "cpu", "intermediate";
 			operating-points-v2 = <&cluster0_opp>;
-			cpu-idle-states = <&CPU_SLEEP &CLUSTER_SLEEP>;
+			cpu-idle-states = <&CPU_SLEEP>;
 			mediatek,cci = <&cci>;
 			dynamic-power-coefficient = <85>;
 			capacity-dmips-mhz = <495>;
@@ -353,7 +353,7 @@
 				 <&topckgen CLK_TOP_ARMPLL_DIVIDER_PLL1>;
 			clock-names = "cpu", "intermediate";
 			operating-points-v2 = <&cluster0_opp>;
-			cpu-idle-states = <&CPU_SLEEP &CLUSTER_SLEEP>;
+			cpu-idle-states = <&CPU_SLEEP>;
 			mediatek,cci = <&cci>;
 			dynamic-power-coefficient = <85>;
 			capacity-dmips-mhz = <495>;
@@ -376,7 +376,7 @@
 				 <&topckgen CLK_TOP_ARMPLL_DIVIDER_PLL1>;
 			clock-names = "cpu", "intermediate";
 			operating-points-v2 = <&cluster0_opp>;
-			cpu-idle-states = <&CPU_SLEEP &CLUSTER_SLEEP>;
+			cpu-idle-states = <&CPU_SLEEP>;
 			mediatek,cci = <&cci>;
 			dynamic-power-coefficient = <85>;
 			capacity-dmips-mhz = <495>;
@@ -399,7 +399,7 @@
 				 <&topckgen CLK_TOP_ARMPLL_DIVIDER_PLL1>;
 			clock-names = "cpu", "intermediate";
 			operating-points-v2 = <&cluster0_opp>;
-			cpu-idle-states = <&CPU_SLEEP &CLUSTER_SLEEP>;
+			cpu-idle-states = <&CPU_SLEEP>;
 			mediatek,cci = <&cci>;
 			dynamic-power-coefficient = <85>;
 			capacity-dmips-mhz = <495>;
@@ -422,7 +422,7 @@
 				 <&topckgen CLK_TOP_ARMPLL_DIVIDER_PLL1>;
 			clock-names = "cpu", "intermediate";
 			operating-points-v2 = <&cluster0_opp>;
-			cpu-idle-states = <&CPU_SLEEP &CLUSTER_SLEEP>;
+			cpu-idle-states = <&CPU_SLEEP>;
 			mediatek,cci = <&cci>;
 			dynamic-power-coefficient = <85>;
 			capacity-dmips-mhz = <495>;
@@ -445,7 +445,7 @@
 				 <&topckgen CLK_TOP_ARMPLL_DIVIDER_PLL1>;
 			clock-names = "cpu", "intermediate";
 			operating-points-v2 = <&cluster0_opp>;
-			cpu-idle-states = <&CPU_SLEEP &CLUSTER_SLEEP>;
+			cpu-idle-states = <&CPU_SLEEP>;
 			mediatek,cci = <&cci>;
 			dynamic-power-coefficient = <85>;
 			capacity-dmips-mhz = <495>;
@@ -468,7 +468,7 @@
 				 <&topckgen CLK_TOP_ARMPLL_DIVIDER_PLL1>;
 			clock-names = "cpu", "intermediate";
 			operating-points-v2 = <&cluster1_opp>;
-			cpu-idle-states = <&CPU_SLEEP &CLUSTER_SLEEP>;
+			cpu-idle-states = <&CPU_SLEEP>;
 			mediatek,cci = <&cci>;
 			dynamic-power-coefficient = <275>;
 			capacity-dmips-mhz = <1024>;
@@ -491,7 +491,7 @@
 				 <&topckgen CLK_TOP_ARMPLL_DIVIDER_PLL1>;
 			clock-names = "cpu", "intermediate";
 			operating-points-v2 = <&cluster1_opp>;
-			cpu-idle-states = <&CPU_SLEEP &CLUSTER_SLEEP>;
+			cpu-idle-states = <&CPU_SLEEP>;
 			mediatek,cci = <&cci>;
 			dynamic-power-coefficient = <275>;
 			capacity-dmips-mhz = <1024>;
@@ -575,14 +575,10 @@
 				min-residency-us = <1200>;
 			};
 
-			CLUSTER_SLEEP: cluster-sleep {
-				compatible = "arm,idle-state";
-				local-timer-stop;
-				arm,psci-suspend-param = <0x01010001>;
-				entry-latency-us = <600>;
-				exit-latency-us = <600>;
-				min-residency-us = <1200>;
-			};
+			/*
+			 * No cluster-sleep (0x01010001): without the vendor
+			 * MCDI firmware it hangs the whole SoC under load.
+			 */
 		};
 	};
 
