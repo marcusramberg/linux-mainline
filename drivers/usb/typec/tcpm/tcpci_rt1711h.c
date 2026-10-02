@@ -9,6 +9,7 @@
 #include <linux/bits.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/delay.h>
 #include <linux/i2c.h>
 #include <linux/interrupt.h>
 #include <linux/gpio/consumer.h>
@@ -47,9 +48,13 @@
 /* 1b0 as fixed rx threshold of rd/rp 0.55V, 1b1 depends on RTCRTL4[0] */
 #define BMCIO_RXDZEN	BIT(0)
 
+#define CPS8851_FAULT_I2C_ERR	BIT(0)
+
 struct rt1711h_chip_info {
 	u32 rxdz_sel;
 	bool enable_pd30_extended_message;
+	/* CPS8851: RT1711H-like, but 0x80+ differ beyond RTCTRL8/13/14..16 */
+	bool cps8851;
 };
 
 struct rt1711h_chip {
@@ -97,13 +102,25 @@ static int rt1711h_init(struct tcpci *tcpci, struct tcpci_data *tdata)
 {
 	struct rt1711h_chip *chip = tdata_to_rt1711h(tdata);
 	struct regmap *regmap = chip->data.regmap;
+	u8 rtctrl8;
 	int ret;
+
+	ret = rt1711h_read8(chip, RT1711H_RTCTRL8, &rtctrl8);
+	if (ret < 0)
+		return ret;
 
 	/* CK 300K from 320K, shipping off, auto_idle enable, tout = 32ms */
 	ret = rt1711h_write8(chip, RT1711H_RTCTRL8,
 			     RT1711H_RTCTRL8_SET(0, 1, 1, 2));
 	if (ret < 0)
 		return ret;
+
+	/*
+	 * Out of shipping mode the CC comparators need time; otherwise TCPM
+	 * reads CC as open and the alert for the attach is cleared below.
+	 */
+	if (!(rtctrl8 & RT1711H_RTCTRL8_SET(0, 1, 0, 0)))
+		msleep(100);
 
 	/* Enable PD30 extended message for RT1715 */
 	if (chip->info->enable_pd30_extended_message) {
@@ -113,11 +130,13 @@ static int rt1711h_init(struct tcpci *tcpci, struct tcpci_data *tdata)
 			return ret;
 	}
 
-	/* I2C reset : (val + 1) * 12.5ms */
-	ret = rt1711h_write8(chip, RT1711H_RTCTRL11,
-			     RT1711H_RTCTRL11_SET(1, 0x0F));
-	if (ret < 0)
-		return ret;
+	if (!chip->info->cps8851) {
+		/* I2C reset : (val + 1) * 12.5ms */
+		ret = rt1711h_write8(chip, RT1711H_RTCTRL11,
+				     RT1711H_RTCTRL11_SET(1, 0x0F));
+		if (ret < 0)
+			return ret;
+	}
 
 	/* tTCPCfilter : (26.7 * val) us */
 	ret = rt1711h_write8(chip, RT1711H_RTCTRL14, 0x0F);
@@ -133,6 +152,20 @@ static int rt1711h_init(struct tcpci *tcpci, struct tcpci_data *tdata)
 	ret = rt1711h_write16(chip, RT1711H_RTCTRL16, 330);
 	if (ret < 0)
 		return ret;
+
+	/*
+	 * tcpci_init()'s 16-bit write to the 8-bit FAULT_STATUS latches the
+	 * I2C error fault, and nothing clears FAULT_STATUS: ALERT.FAULT
+	 * storms. Mask and clear it.
+	 */
+	if (chip->info->cps8851) {
+		ret = regmap_update_bits(regmap, TCPC_FAULT_STATUS_MASK,
+					 CPS8851_FAULT_I2C_ERR, 0);
+		if (ret < 0)
+			return ret;
+		return rt1711h_write8(chip, TCPC_FAULT_STATUS,
+				      CPS8851_FAULT_I2C_ERR);
+	}
 
 	/* Enable phy discard retry, retry count 7, rx filter deglitch 100 us */
 	ret = rt1711h_write8(chip, RT1711H_PHYCTRL1, 0xF1);
@@ -184,6 +217,9 @@ static inline int rt1711h_init_cc_params(struct rt1711h_chip *chip, u8 status)
 	int ret, cc1, cc2;
 	u8 role = 0;
 	u32 rxdz_en, rxdz_sel;
+
+	if (chip->info->cps8851)
+		return 0;
 
 	ret = rt1711h_read8(chip, TCPC_ROLE_CTRL, &role);
 	if (ret < 0)
@@ -375,7 +411,12 @@ static const struct rt1711h_chip_info rt1715 = {
 	.enable_pd30_extended_message = true,
 };
 
+static const struct rt1711h_chip_info cps8851 = {
+	.cps8851 = true,
+};
+
 static const struct i2c_device_id rt1711h_id[] = {
+	{ .name = "cps8851", .driver_data = (kernel_ulong_t)&cps8851 },
 	{ .name = "et7304", .driver_data = (kernel_ulong_t)&rt1715 },
 	{ .name = "rt1711h", .driver_data = (kernel_ulong_t)&rt1711h },
 	{ .name = "rt1715", .driver_data = (kernel_ulong_t)&rt1715 },
@@ -384,6 +425,7 @@ static const struct i2c_device_id rt1711h_id[] = {
 MODULE_DEVICE_TABLE(i2c, rt1711h_id);
 
 static const struct of_device_id rt1711h_of_match[] = {
+	{ .compatible = "convenientpower,cps8851", .data = &cps8851 },
 	{ .compatible = "etekmicro,et7304", .data = &rt1715 },
 	{ .compatible = "richtek,rt1711h", .data = &rt1711h },
 	{ .compatible = "richtek,rt1715", .data = &rt1715 },
