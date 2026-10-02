@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Motorola Moto G17 (lamuc), booted from U-Boot chainloaded by stock lk.
- * Minimal: no PMIC, so nothing touches the regulators lk left on.
+ * Minimal: MT6358 regulators, no display.
  */
 
 /dts-v1/;
 
 #include "mt6768.dtsi"
+#include "mt6358.dtsi"
+#include <dt-bindings/gpio/gpio.h>
 
 / {
 	model = "Motorola Moto G17";
@@ -157,6 +159,22 @@
 	status = "okay";
 };
 
+/* microSD, conservatively: high speed only */
+&mmc1 {
+	pinctrl-names = "default", "state_uhs";
+	pinctrl-0 = <&mmc1_default_pins>;
+	pinctrl-1 = <&mmc1_default_pins>;
+	bus-width = <4>;
+	max-frequency = <50000000>;
+	cap-sd-highspeed;
+	no-mmc;
+	no-sdio;
+	cd-gpios = <&pio 18 GPIO_ACTIVE_HIGH>;
+	vmmc-supply = <&mt6358_vmch_reg>;
+	vqmmc-supply = <&mt6358_vmc_reg>;
+	status = "okay";
+};
+
 &pio {
 	/* SoC-fixed MSDC0 pins, as on penangf */
 	mmc0_default_pins: mmc0-default-pins {
@@ -191,6 +209,46 @@
 			drive-strength = <MTK_DRIVE_6mA>;
 			bias-pull-up = <MTK_PUPD_SET_R1R0_01>;
 		};
+	};
+
+	mmc1_default_pins: mmc1-default-pins {
+		pins-cmd-dat {
+			pinmux = <PINMUX_GPIO164__FUNC_MSDC1_DAT0>,
+				 <PINMUX_GPIO163__FUNC_MSDC1_DAT1>,
+				 <PINMUX_GPIO162__FUNC_MSDC1_DAT2>,
+				 <PINMUX_GPIO161__FUNC_MSDC1_DAT3>,
+				 <PINMUX_GPIO170__FUNC_MSDC1_CMD>;
+			input-enable;
+			drive-strength = <MTK_DRIVE_4mA>;
+			bias-pull-up = <MTK_PUPD_SET_R1R0_01>;
+		};
+
+		pins-clk {
+			pinmux = <PINMUX_GPIO171__FUNC_MSDC1_CLK>;
+			drive-strength = <MTK_DRIVE_4mA>;
+			bias-pull-down = <MTK_PUPD_SET_R1R0_10>;
+		};
+
+		pins-insert {
+			pinmux = <PINMUX_GPIO18__FUNC_GPIO18>;
+			bias-pull-up;
+		};
+	};
+};
+
+&pmic {
+	interrupts-extended = <&pio 144 IRQ_TYPE_LEVEL_LOW>;
+};
+
+/* not yet: the codec */
+&mt6358codec {
+	status = "disabled";
+};
+
+/* the PMIC "home" key is Volume Down on this phone */
+&mt6358keys {
+	home {
+		linux,keycodes = <KEY_VOLUMEDOWN>;
 	};
 };
 
