@@ -298,6 +298,9 @@
 
 /* the PMIC "home" key is Volume Down on this phone */
 &mt6358keys {
+	/* raw RST_TD code, not seconds: 0 as on stock */
+	power-off-time-sec = <0>;
+
 	home {
 		linux,keycodes = <KEY_VOLUMEDOWN>;
 	};
