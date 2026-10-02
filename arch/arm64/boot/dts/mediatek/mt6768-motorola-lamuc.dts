@@ -237,7 +237,7 @@
 };
 
 &pmic {
-	interrupts-extended = <&pio 144 IRQ_TYPE_LEVEL_LOW>;
+	interrupts-extended = <&pio 144 IRQ_TYPE_LEVEL_HIGH>;
 };
 
 /* not yet: the codec */
