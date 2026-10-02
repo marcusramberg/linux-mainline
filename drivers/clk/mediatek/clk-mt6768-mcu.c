@@ -7,14 +7,14 @@
 
 static const char *const mcu_armpll_ll_parents[] = {
 	"clk26m",
-	"armpll",
+	"armpll_l",
 	"arm_div_pll1_en",
 	"arm_div_pll2_en"
 };
 
 static const char *const mcu_armpll_bl_parents[] = {
 	"clk26m",
-	"armpll_l",
+	"armpll",
 	"arm_div_pll1_en",
 	"arm_div_pll2_en"
 };
@@ -27,14 +27,15 @@ static const char *const mcu_armpll_bus_parents[] = {
 };
 
 static struct mtk_composite mcu_muxes[] = {
-	MUX(CLK_MCU_PLL_LL_SEL, "mcu_armpll_ll", mcu_armpll_ll_parents, 0x2a0, 9, 2),
-	MUX(CLK_MCU_PLL_L_SEL, "mcu_armpll_bl", mcu_armpll_bl_parents, 0x2a4, 9, 2),
-	MUX(CLK_MCU_PLL_BUS_SEL, "mcu_armpll_bus", mcu_armpll_bus_parents, 0x2e0, 9, 2),
+	MUX(CLK_MCU_PLL_LL_SEL, "mcu_armpll_ll", mcu_armpll_ll_parents, 0xa2a0, 9, 2),
+	MUX(CLK_MCU_PLL_L_SEL, "mcu_armpll_bl", mcu_armpll_bl_parents, 0xa2a4, 9, 2),
+	MUX(CLK_MCU_PLL_BUS_SEL, "mcu_armpll_bus", mcu_armpll_bus_parents, 0xa2e0, 9, 2),
 };
 
 static const struct mtk_clk_desc mcu_desc = {
 	.composite_clks = mcu_muxes,
 	.num_composite_clks = ARRAY_SIZE(mcu_muxes),
+	.shared_io = true,
 };
 
 static const struct of_device_id of_match_clk_mt6768_mcu[] = {
