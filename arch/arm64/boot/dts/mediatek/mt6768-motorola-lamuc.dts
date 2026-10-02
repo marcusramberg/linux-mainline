@@ -219,6 +219,32 @@
 };
 
 /* microSD, conservatively: high speed only */
+/* pins muxed by the bootloader, as in the vendor DT */
+&i2c7 {
+	clock-frequency = <400000>;
+	status = "okay";
+
+	/* Suncore CX25890H, a register-compatible BQ25890 clone (same PN) */
+	charger@6a {
+		compatible = "ti,bq25890";
+		reg = <0x6a>;
+		interrupts-extended = <&pio 3 IRQ_TYPE_EDGE_FALLING>;
+		/* lk leaves it charging; /CE is GPIO150, held low by lk */
+		linux,skip-reset;
+		/*
+		 * Vendor: 2048 mA, 4.448 V. Lower until the battery
+		 * temperature is monitored.
+		 */
+		ti,charge-current = <1024000>;
+		ti,battery-regulation-voltage = <4400000>;
+		ti,termination-current = <256000>;
+		ti,precharge-current = <128000>;
+		ti,minimum-sys-voltage = <3500000>;
+		ti,boost-voltage = <5126000>;
+		ti,boost-max-current = <1650000>;
+	};
+};
+
 &mmc1 {
 	pinctrl-names = "default", "state_uhs";
 	pinctrl-0 = <&mmc1_default_pins>;
