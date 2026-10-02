@@ -6,6 +6,7 @@
  *
  */
 
+#include <linux/delay.h>
 #include <linux/err.h>
 #include <linux/module.h>
 #include <linux/of.h>
@@ -14,6 +15,7 @@
 #include <linux/mfd/mt6397/rtc.h>
 #include <linux/mfd/mt6358/registers.h>
 #include <linux/reboot.h>
+#include <linux/regmap.h>
 
 struct mt6358_pwrc {
 	struct device *dev;
@@ -86,6 +88,21 @@ static int mt6358_do_pwroff(struct sys_off_data *data)
 	return NOTIFY_DONE;
 }
 
+/* RG_CRST: PMIC cold reset, as a Power long-press; a warm reset can wedge lk */
+#define MT6358_RG_CRST		BIT(8)
+
+static int mt6358_do_restart(struct sys_off_data *data)
+{
+	struct mt6358_pwrc *pwrc = data->cb_data;
+
+	regmap_update_bits(pwrc->regmap, MT6358_RG_PPCCTL0, MT6358_RG_CRST,
+			   MT6358_RG_CRST);
+	mdelay(1000);
+	dev_err(pwrc->dev, "cold reset did not happen\n");
+
+	return NOTIFY_DONE;
+}
+
 static int mt6358_pwrc_probe(struct platform_device *pdev)
 {
 	struct mt6397_chip *mt6397_chip = dev_get_drvdata(pdev->dev.parent);
@@ -112,6 +129,14 @@ static int mt6358_pwrc_probe(struct platform_device *pdev)
 					    pwrc);
 	if (ret)
 		return dev_err_probe(pwrc->dev, ret, "failed to register power-off handler\n");
+
+	ret = devm_register_sys_off_handler(pwrc->dev,
+					    SYS_OFF_MODE_RESTART_PREPARE,
+					    SYS_OFF_PRIO_DEFAULT,
+					    mt6358_do_restart,
+					    pwrc);
+	if (ret)
+		return dev_err_probe(pwrc->dev, ret, "failed to register restart handler\n");
 
 	return 0;
 }
