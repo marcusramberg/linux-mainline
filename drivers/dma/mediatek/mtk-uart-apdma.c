@@ -30,7 +30,6 @@
 #define VFF_EN_B		BIT(0)
 #define VFF_STOP_B		BIT(0)
 #define VFF_FLUSH_B		BIT(0)
-#define VFF_4G_EN_B		BIT(0)
 /* rx valid size >=  vff thre */
 #define VFF_RX_INT_EN_B		(BIT(0) | BIT(1))
 /* tx left size >= vff thre */

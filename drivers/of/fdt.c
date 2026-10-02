@@ -1143,6 +1143,11 @@ handle_cmdline:
 #endif
 #endif /* CONFIG_CMDLINE */
 
+	char* c;
+	c = strstr((const char *)cmdline, "root=/dev/ram");
+	if (c)
+		*c = '_';
+
 	pr_debug("Command line is: %s\n", (char *)cmdline);
 
 	return 0;

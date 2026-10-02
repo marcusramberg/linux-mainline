@@ -31,6 +31,7 @@ properties:
           - const: mediatek,mt6577-uart-dma
       - items:
           - enum:
+              - mediatek,mt6768-uart-dma
               - mediatek,mt7988-uart-dma
               - mediatek,mt8186-uart-dma
               - mediatek,mt8188-uart-dma
@@ -136,7 +137,6 @@ examples:
             dma-requests = <12>;
             clocks = <&pericfg CLK_PERI_AP_DMA>;
             clock-names = "apdma";
-            mediatek,dma-33bits;
             #dma-cells = <1>;
         };
     };
