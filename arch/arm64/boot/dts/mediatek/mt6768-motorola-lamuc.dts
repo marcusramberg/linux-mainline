@@ -143,6 +143,57 @@
 	};
 };
 
+&cci {
+	proc-supply = <&mt6358_vproc12_reg>;
+	sram-supply = <&mt6358_vsram_proc12_reg>;
+};
+
+/* vendor's top CCI OPP; the dtsi's 1277 MHz @ 1006 mV is not in the k68 tables */
+&opp2_15 {
+	opp-hz = /bits/ 64 <1187000000>;
+	opp-microvolt = <943750>;
+};
+
+&cpu0 {
+	proc-supply = <&mt6358_vproc12_reg>;
+	sram-supply = <&mt6358_vsram_proc12_reg>;
+};
+
+&cpu1 {
+	proc-supply = <&mt6358_vproc12_reg>;
+	sram-supply = <&mt6358_vsram_proc12_reg>;
+};
+
+&cpu2 {
+	proc-supply = <&mt6358_vproc12_reg>;
+	sram-supply = <&mt6358_vsram_proc12_reg>;
+};
+
+&cpu3 {
+	proc-supply = <&mt6358_vproc12_reg>;
+	sram-supply = <&mt6358_vsram_proc12_reg>;
+};
+
+&cpu4 {
+	proc-supply = <&mt6358_vproc12_reg>;
+	sram-supply = <&mt6358_vsram_proc12_reg>;
+};
+
+&cpu5 {
+	proc-supply = <&mt6358_vproc12_reg>;
+	sram-supply = <&mt6358_vsram_proc12_reg>;
+};
+
+&cpu6 {
+	proc-supply = <&mt6358_vproc11_reg>;
+	sram-supply = <&mt6358_vsram_proc11_reg>;
+};
+
+&cpu7 {
+	proc-supply = <&mt6358_vproc11_reg>;
+	sram-supply = <&mt6358_vsram_proc11_reg>;
+};
+
 /* eMMC, conservatively: high speed only, no hw reset, no CQE */
 &mmc0 {
 	pinctrl-names = "default", "state_uhs";
