@@ -14,6 +14,11 @@
 	model = "Motorola Moto G17";
 	compatible = "motorola,lamuc", "mediatek,mt6768";
 
+	aliases {
+		mmc0 = &mmc0;
+		mmc1 = &mmc1;
+	};
+
 	chosen {
 		/* lk's second framebuffer page, what the panel scans out */
 		framebuffer@77916000 {
