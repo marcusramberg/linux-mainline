@@ -423,6 +423,7 @@ static const struct mtk_ccifreq_platform_data mt8186_platform_data = {
 };
 
 static const struct of_device_id mtk_ccifreq_machines[] = {
+	{ .compatible = "mediatek,mt6768-cci", .data = &mt8186_platform_data },
 	{ .compatible = "mediatek,mt8183-cci", .data = &mt8183_platform_data },
 	{ .compatible = "mediatek,mt8186-cci", .data = &mt8186_platform_data },
 	{ },
