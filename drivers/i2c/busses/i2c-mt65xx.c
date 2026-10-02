@@ -80,6 +80,7 @@
 #define I2C_CONTROL_DIR_CHANGE          (0x1 << 4)
 #define I2C_CONTROL_ACKERR_DET_EN       (0x1 << 5)
 #define I2C_CONTROL_TRANSFER_LEN_CHANGE (0x1 << 6)
+#define I2C_CONTROL_IRQ_SEL             (0x1 << 7)
 #define I2C_CONTROL_DMAACK_EN           (0x1 << 8)
 #define I2C_CONTROL_ASYNC_MODE          (0x1 << 9)
 #define I2C_CONTROL_WRAPPER             (0x1 << 0)
@@ -269,6 +270,7 @@ struct mtk_i2c_compatible {
 	unsigned char dma_sync: 1;
 	unsigned char ltiming_adjust: 1;
 	unsigned char apdma_sync: 1;
+	unsigned char irq_sel: 1;
 	unsigned char max_dma_support;
 };
 
@@ -415,6 +417,7 @@ static const struct mtk_i2c_compatible mt6768_compat = {
 	.dma_sync = 1,
 	.ltiming_adjust = 1,
 	.apdma_sync = 1,
+	.irq_sel = 1,
 	.max_dma_support = 36,
 };
 
@@ -650,6 +653,8 @@ static void mtk_i2c_init_hw(struct mtk_i2c *i2c)
 		      I2C_CONTROL_CLK_EXT_EN | I2C_CONTROL_DMA_EN;
 	if (i2c->dev_comp->dma_sync)
 		control_reg |= I2C_CONTROL_DMAACK_EN | I2C_CONTROL_ASYNC_MODE;
+	if (i2c->dev_comp->irq_sel)
+		control_reg |= I2C_CONTROL_IRQ_SEL;
 
 	mtk_i2c_writew(i2c, control_reg, OFFSET_CONTROL);
 	mtk_i2c_writew(i2c, I2C_DELAY_LEN, OFFSET_DELAY_LEN);
