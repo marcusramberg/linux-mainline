@@ -246,4 +246,70 @@
 /* GCE */
 #define CLK_GCE_GCE			0
 
+/* MIPI_RX_ANA_CSI0A */
+#define CLK_MIPI0A_CSR_CSI_EN_0A	0
+
+/* MIPI_RX_ANA_CSI0B */
+#define CLK_MIPI0B_CSR_CSI_EN_0B	0
+
+/* MIPI_RX_ANA_CSI1A */
+#define CLK_MIPI1A_CSR_CSI_EN_1A	0
+
+/* MIPI_RX_ANA_CSI1B */
+#define CLK_MIPI1B_CSR_CSI_EN_1B	0
+
+/* MIPI_RX_ANA_CSI2A */
+#define CLK_MIPI2A_CSR_CSI_EN_2A	0
+
+/* MIPI_RX_ANA_CSI2B */
+#define CLK_MIPI2B_CSR_CSI_EN_2B	0
+
+/* MFG */
+#define CLK_MFGCFG_BG3D			0
+
+/* MMSYS_CONFIG */
+#define CLK_MM_MDP_RDMA0		0
+#define CLK_MM_MDP_CCORR0		1
+#define CLK_MM_MDP_RSZ0			2
+#define CLK_MM_MDP_RSZ1			3
+#define CLK_MM_MDP_TDSHP0		4
+#define CLK_MM_MDP_WROT0		5
+#define CLK_MM_MDP_WDMA0		6
+#define CLK_MM_DISP_OVL0		7
+#define CLK_MM_DISP_OVL0_2L		8
+#define CLK_MM_DISP_RSZ0		9
+#define CLK_MM_DISP_RDMA0		10
+#define CLK_MM_DISP_WDMA0		11
+#define CLK_MM_DISP_COLOR0		12
+#define CLK_MM_DISP_CCORR0		13
+#define CLK_MM_DISP_AAL0		14
+#define CLK_MM_DISP_GAMMA0		15
+#define CLK_MM_DISP_DITHER0		16
+#define CLK_MM_DSI0			17
+#define CLK_MM_FAKE_ENG			18
+#define CLK_MM_SMI_COMMON		19
+#define CLK_MM_SMI_LARB0		20
+#define CLK_MM_SMI_COMM0		21
+#define CLK_MM_SMI_COMM1		22
+#define CLK_MM_CAM_MDP			23
+#define CLK_MM_SMI_IMG			24
+#define CLK_MM_SMI_CAM			25
+#define CLK_MM_SMI_VENC			26
+#define CLK_MM_SMI_VDEC			27
+#define CLK_MM_IMG_DL_RELAY		28
+#define CLK_MM_IMG_DL_ASYNC_TOP		29
+#define CLK_MM_DIG_DSI			30
+#define CLK_MM_F26M_HRTWT		31
+
+/* VENCSYS */
+#define CLK_VENC_SET0_LARB		0
+#define CLK_VENC_SET1_VENC		1
+#define CLK_VENC_SET2_JPGENC		2
+
+/* VDECSYS */
+#define CLK_VDEC_CKEN			0
+#define CLK_VDEC_ACTIVE			1
+#define CLK_VDEC_CKEN_ENG		2
+#define CLK_VDEC_LARB1_CKEN		3
+
 #endif
