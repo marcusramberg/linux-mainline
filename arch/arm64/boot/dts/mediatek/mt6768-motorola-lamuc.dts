@@ -205,8 +205,11 @@
 	pinctrl-0 = <&mmc0_default_pins>;
 	pinctrl-1 = <&mmc0_default_pins>;
 	bus-width = <8>;
-	max-frequency = <50000000>;
+	max-frequency = <200000000>;
 	cap-mmc-highspeed;
+	mmc-hs200-1_8v;
+	mmc-hs400-1_8v;
+	hs400-ds-delay = <0x12814>;
 	non-removable;
 	no-sd;
 	no-sdio;
