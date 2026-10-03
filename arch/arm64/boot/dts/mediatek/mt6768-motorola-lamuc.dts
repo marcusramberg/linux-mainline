@@ -28,6 +28,8 @@
 		charge-full-design-microamp-hours = <5200000>;
 		voltage-min-design-microvolt = <3400000>;
 		voltage-max-design-microvolt = <4448000>;
+		/* measured, 49 mV sag at 623 mA (profile: 88-93 mOhm at 25 C) */
+		factory-internal-resistance-micro-ohms = <80000>;
 		ocv-capacity-celsius = <25>;
 		ocv-capacity-table-0 = <4461000 100>, <4400974 95>, <4349768 90>,
 			<4293264 85>, <4232175 80>, <4170600 75>, <4112594 70>,
