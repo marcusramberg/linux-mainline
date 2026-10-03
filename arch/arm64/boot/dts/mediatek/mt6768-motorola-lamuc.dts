@@ -47,6 +47,16 @@
 		#thermal-sensor-cells = <0>;
 	};
 
+	/* the SCP's other sensor bus (SCP_SDA0/SCL0); no AP I2C function there */
+	i2c-scp0 {
+		compatible = "i2c-gpio";
+		sda-gpios = <&pio 15 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		scl-gpios = <&pio 16 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		i2c-gpio,delay-us = <2>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+	};
+
 	fuel-gauge {
 		compatible = "adc-battery";
 		io-channels = <&pmic_adc MT6358_AUXADC_BATADC>, <&pmic_fgadc>;
@@ -289,6 +299,14 @@
 	};
 };
 
+/* sensors, behind the SCP on stock */
+&i2c1 {
+	clock-frequency = <400000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c1_pins>;
+	status = "okay";
+};
+
 /* pins muxed by the bootloader, as in the vendor DT */
 &i2c6 {
 	clock-frequency = <400000>;
@@ -370,6 +388,14 @@
 				 <PINMUX_GPIO119__FUNC_CONN_WF_CTRL2>,
 				 <PINMUX_GPIO120__FUNC_CONN_WB_PTA>,
 				 <PINMUX_GPIO121__FUNC_CONN_HRST_B>;
+		};
+	};
+
+	/* stock muxes these to the SCP (SCP_SCL1/SDA1) for its sensor hub */
+	i2c1_pins: i2c1-pins {
+		pins-bus {
+			pinmux = <PINMUX_GPIO81__FUNC_SDA1>,
+				 <PINMUX_GPIO84__FUNC_SCL1>;
 		};
 	};
 
