@@ -814,6 +814,17 @@ config TOUCHSCREEN_PENMOUNT
 	  To compile this driver as a module, choose M here: the
 	  module will be called penmount.
 
+config TOUCHSCREEN_FOCALTECH_SPI
+	tristate "FocalTech TDDI SPI touchscreen"
+	depends on SPI
+	select CRC_CCITT
+	help
+	  Say Y here for the touchscreen of FocalTech TDDI display
+	  controllers on SPI, such as the FT8725 in the Motorola Moto G17.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called focaltech-spi.
+
 config TOUCHSCREEN_EDT_FT5X06
 	tristate "EDT FocalTech FT5x06 I2C Touchscreen support"
 	depends on I2C
