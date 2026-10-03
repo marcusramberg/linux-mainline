@@ -17,7 +17,11 @@ description:
 
 properties:
   compatible:
-    const: bosch,bmi323
+    oneOf:
+      - const: bosch,bmi323
+      - items:
+          - const: bosch,bmi320
+          - const: bosch,bmi323
 
   reg:
     maxItems: 1
