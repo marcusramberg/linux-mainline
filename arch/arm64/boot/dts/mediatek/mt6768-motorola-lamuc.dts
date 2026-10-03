@@ -314,6 +314,11 @@
 		/* ~280 counts open, thousands when covered */
 		proximity-near-level = <1500>;
 	};
+
+	magnetometer@2c {
+		compatible = "qst,qmc6308";
+		reg = <0x2c>;
+	};
 };
 
 /* pins muxed by the bootloader, as in the vendor DT */
