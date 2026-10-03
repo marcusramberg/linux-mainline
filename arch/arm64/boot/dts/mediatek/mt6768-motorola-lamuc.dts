@@ -49,8 +49,8 @@
 
 	fuel-gauge {
 		compatible = "adc-battery";
-		io-channels = <&pmic_adc MT6358_AUXADC_BATADC>;
-		io-channel-names = "voltage";
+		io-channels = <&pmic_adc MT6358_AUXADC_BATADC>, <&pmic_fgadc>;
+		io-channel-names = "voltage", "current";
 		monitored-battery = <&battery>;
 		power-supplies = <&charger>;
 	};
@@ -427,6 +427,13 @@
 
 &pmic {
 	interrupts-extended = <&pio 144 IRQ_TYPE_LEVEL_HIGH>;
+
+	pmic_fgadc: fuel-gauge {
+		compatible = "mediatek,mt6358-fgadc";
+		#io-channel-cells = <0>;
+		/* stock R_FG_VALUE */
+		shunt-resistor-micro-ohms = <5000>;
+	};
 };
 
 /* not yet: the codec */
