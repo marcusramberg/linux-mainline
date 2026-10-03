@@ -1150,6 +1150,17 @@
 			compatible = "mediatek,mt6768-wdt", "mediatek,mt8183-wdt",
 				     "mediatek,mt6589-wdt", "syscon";
 			reg = <0 0x10007000 0 0x100>;
+			#reset-cells = <1>;
+		};
+
+		consys: connectivity@18002000 {
+			compatible = "mediatek,mt6768-consys";
+			reg = <0 0x18002000 0 0x1000>, <0 0x180b1000 0 0x1000>;
+			reg-names = "mcu", "misc";
+			power-domains = <&spm MT6768_POWER_DOMAIN_CONN>;
+			resets = <&toprgu 12>, <&toprgu 9>;
+			reset-names = "cpu", "sw";
+			status = "disabled";
 		};
 
 		apxgpt: timer@10008000 {

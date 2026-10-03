@@ -325,6 +325,20 @@
 };
 
 &pio {
+	consys_pins: consys-pins {
+		pins-adie {
+			pinmux = <PINMUX_GPIO113__FUNC_CONN_TOP_CLK>,
+				 <PINMUX_GPIO114__FUNC_CONN_TOP_DATA>,
+				 <PINMUX_GPIO115__FUNC_CONN_BT_CLK>,
+				 <PINMUX_GPIO116__FUNC_CONN_BT_DATA>,
+				 <PINMUX_GPIO117__FUNC_CONN_WF_CTRL0>,
+				 <PINMUX_GPIO118__FUNC_CONN_WF_CTRL1>,
+				 <PINMUX_GPIO119__FUNC_CONN_WF_CTRL2>,
+				 <PINMUX_GPIO120__FUNC_CONN_WB_PTA>,
+				 <PINMUX_GPIO121__FUNC_CONN_HRST_B>;
+		};
+	};
+
 	spi2_pins: spi2-pins {
 		pins-spi {
 			pinmux = <PINMUX_GPIO25__FUNC_SPI2_CSB>,
@@ -542,3 +556,11 @@
 		};
 	};
 };
+
+&consys {
+	pinctrl-names = "default";
+	pinctrl-0 = <&consys_pins>;
+	vcn18-supply = <&mt6358_vcn18_reg>;
+	status = "okay";
+};
+
