@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Motorola Moto G17 (lamuc), booted from U-Boot chainloaded by stock lk.
- * Minimal: MT6358 regulators, no display.
+ * MT6358 regulators, display on lk's panel init.
  */
 
 /dts-v1/;
@@ -379,5 +379,31 @@
 };
 
 &usb2phy {
+	status = "okay";
+};
+
+&dsi0 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	status = "okay";
+
+	/* lk powers it up and sends the init sequence; see recon/dtbo/dtbo0.dts */
+	panel@0 {
+		compatible = "djn,ft8725";
+		reg = <0>;
+
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&dsi_out>;
+			};
+		};
+	};
+};
+
+&dsi_out {
+	remote-endpoint = <&panel_in>;
+};
+
+&mipi_tx0 {
 	status = "okay";
 };
