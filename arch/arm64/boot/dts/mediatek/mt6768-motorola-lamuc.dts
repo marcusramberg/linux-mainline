@@ -305,6 +305,13 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2c1_pins>;
 	status = "okay";
+
+	light-sensor@23 {
+		compatible = "liteon,ltr569";
+		reg = <0x23>;
+		/* ~280 counts open, thousands when covered */
+		proximity-near-level = <1500>;
+	};
 };
 
 /* pins muxed by the bootloader, as in the vendor DT */
