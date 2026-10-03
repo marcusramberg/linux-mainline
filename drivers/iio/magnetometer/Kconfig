@@ -242,6 +242,16 @@ config SENSORS_HMC5843_SPI
 	  - hmc5843_core (core functions)
 	  - hmc5843_spi (support for HMC5983)
 
+config QMC6308
+	tristate "QST QMC6308 3-axis magnetometer"
+	depends on I2C
+	help
+	  Say yes here to build support for the QST QMC6308 3-axis
+	  magnetometer.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called qmc6308.
+
 config SENSORS_RM3100
 	tristate
 	select IIO_BUFFER
