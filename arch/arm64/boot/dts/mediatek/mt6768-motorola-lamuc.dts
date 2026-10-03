@@ -463,8 +463,8 @@
 		spi-cpha;
 		interrupts-extended = <&pio 0 IRQ_TYPE_EDGE_FALLING>;
 		reset-gpios = <&pio 36 GPIO_ACTIVE_LOW>;
-		/* vendor focaltech,display-coords; not yet checked against touches */
-		touchscreen-size-x = <4320>;
-		touchscreen-size-y = <9600>;
+		/* reports display pixels, same orientation (checked with evtest) */
+		touchscreen-size-x = <1080>;
+		touchscreen-size-y = <2400>;
 	};
 };
