@@ -37,6 +37,16 @@
 			<3667100 5>, <3205000 0>;
 	};
 
+	/* 10k NTC (vendor table = NCP15XH103), 24k pull-up to 2.8 V */
+	battery_ntc: thermistor {
+		compatible = "murata,ncp15xh103";
+		io-channels = <&pmic_adc MT6358_AUXADC_BAT_TEMP>;
+		pullup-uv = <2800000>;
+		pullup-ohm = <24000>;
+		pulldown-ohm = <0>;
+		#thermal-sensor-cells = <0>;
+	};
+
 	fuel-gauge {
 		compatible = "adc-battery";
 		io-channels = <&pmic_adc MT6358_AUXADC_BATADC>;
@@ -287,17 +297,15 @@
 		interrupts-extended = <&pio 3 IRQ_TYPE_EDGE_FALLING>;
 		/* lk leaves it charging; /CE is GPIO150, held low by lk */
 		linux,skip-reset;
-		/*
-		 * Vendor: 2048 mA, 4.448 V. Lower until the battery
-		 * temperature is monitored.
-		 */
-		ti,charge-current = <1024000>;
-		ti,battery-regulation-voltage = <4400000>;
+		/* TS is not the battery NTC: JEITA is battery-thermal's job */
+		ti,charge-current = <2048000>;
+		ti,battery-regulation-voltage = <4448000>;
 		ti,termination-current = <256000>;
 		ti,precharge-current = <128000>;
 		ti,minimum-sys-voltage = <3500000>;
 		ti,boost-voltage = <5126000>;
 		ti,boost-max-current = <1650000>;
+		#cooling-cells = <2>;
 	};
 };
 
@@ -491,5 +499,46 @@
 		/* reports display pixels, same orientation (checked with evtest) */
 		touchscreen-size-x = <1080>;
 		touchscreen-size-y = <2400>;
+	};
+};
+
+&thermal_zones {
+	/* vendor JEITA: 4.2 V and less current above 45 C, none above 60 C */
+	battery-thermal {
+		polling-delay-passive = <5000>;
+		polling-delay = <10000>;
+		thermal-sensors = <&battery_ntc>;
+
+		trips {
+			battery_warm: trip-warm {
+				temperature = <45000>;
+				hysteresis = <3000>;
+				type = "passive";
+			};
+
+			battery_hot: trip-hot {
+				temperature = <60000>;
+				hysteresis = <3000>;
+				type = "passive";
+			};
+
+			trip-crit {
+				temperature = <68000>;
+				hysteresis = <0>;
+				type = "critical";
+			};
+		};
+
+		cooling-maps {
+			map-warm {
+				trip = <&battery_warm>;
+				cooling-device = <&charger 1 2>;
+			};
+
+			map-hot {
+				trip = <&battery_hot>;
+				cooling-device = <&charger 3 3>;
+			};
+		};
 	};
 };
