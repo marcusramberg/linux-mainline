@@ -116,6 +116,16 @@ config DRM_PANEL_CHIPWEALTH_CH13726A
 	  Say Y here if you want to enable support for ChipWealth
 	  CH13726A-based display panels.
 
+config DRM_PANEL_DJN_FT8725
+	tristate "DJN FT8725 1080x2400 video mode DSI panel"
+	depends on OF
+	depends on DRM_MIPI_DSI
+	depends on BACKLIGHT_CLASS_DEVICE
+	help
+	  Say Y here if you want to enable support for the DJN FT8725
+	  1080x2400 video mode panel used in the Motorola Moto G17. It
+	  relies on the bootloader to initialize the panel.
+
 config DRM_PANEL_EBBG_FT8719
 	tristate "EBBG FT8719 panel driver"
 	depends on GPIOLIB
