@@ -636,6 +636,27 @@ static const struct mtk_clk_rst_desc clk_rst_desc = {
 	.rst_bank_nr = ARRAY_SIZE(infra_rst_ofs),
 };
 
+static int clk_mt6768_reg_mfg_mux_notifier(struct device *dev, struct clk *clk)
+{
+	struct mtk_mux_nb *mfg_mux_nb;
+	int i;
+
+	mfg_mux_nb = devm_kzalloc(dev, sizeof(*mfg_mux_nb), GFP_KERNEL);
+	if (!mfg_mux_nb)
+		return -ENOMEM;
+
+	for (i = 0; i < ARRAY_SIZE(top_muxes); i++)
+		if (top_muxes[i].id == CLK_TOP_MFG_SEL)
+			break;
+	if (i == ARRAY_SIZE(top_muxes))
+		return -EINVAL;
+
+	mfg_mux_nb->ops = top_muxes[i].ops;
+	mfg_mux_nb->bypass_index = 0; /* Bypass to 26M crystal */
+
+	return devm_mtk_clk_mux_notifier_register(dev, clk, mfg_mux_nb);
+}
+
 static int clk_mt6768_top_probe(struct platform_device *pdev)
 {
 	static struct clk_hw_onecell_data *clk_data;
@@ -658,6 +679,11 @@ static int clk_mt6768_top_probe(struct platform_device *pdev)
 	mtk_clk_register_composites(&pdev->dev, top_aud_comp, ARRAY_SIZE(top_aud_comp), base,
 				    &mt6768_clk_lock, clk_data);
 	r = mtk_clk_register_gates(&pdev->dev, node, top_clks, ARRAY_SIZE(top_clks), clk_data);
+	if (r)
+		return r;
+
+	r = clk_mt6768_reg_mfg_mux_notifier(&pdev->dev,
+					    clk_data->hws[CLK_TOP_MFG_SEL]->clk);
 	if (r)
 		return r;
 
