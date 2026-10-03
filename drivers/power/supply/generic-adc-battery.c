@@ -19,6 +19,7 @@
 #include <linux/iio/types.h>
 #include <linux/of.h>
 #include <linux/devm-helpers.h>
+#include <linux/math64.h>
 
 #define JITTER_DEFAULT 10 /* hope 10ms is enough */
 
@@ -99,6 +100,19 @@ static int gab_read_channel(struct gab *adc_bat, enum gab_chan_type channel,
 	return ret;
 }
 
+/* OCV from the loaded voltage: current_now is positive while charging */
+static int gab_ocv(struct gab *adc_bat, int uv)
+{
+	int r = adc_bat->info->factory_internal_resistance_uohm;
+	int ua;
+
+	if (r <= 0 || !adc_bat->channel[GAB_CURRENT] ||
+	    gab_read_channel(adc_bat, GAB_CURRENT, &ua) < 0)
+		return uv;
+
+	return uv - div_s64((s64)ua * r, 1000000);
+}
+
 static int gab_get_property(struct power_supply *psy,
 		enum power_supply_property psp, union power_supply_propval *val)
 {
@@ -119,12 +133,12 @@ static int gab_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CAPACITY: {
 		int uv, ret;
 
-		/* ponytail: OCV lookup on the loaded voltage, reads low under load */
 		if (!adc_bat->info)
 			return -ENODATA;
 		ret = gab_read_channel(adc_bat, GAB_VOLTAGE, &uv);
 		if (ret < 0)
 			return ret;
+		uv = gab_ocv(adc_bat, uv);
 		val->intval = power_supply_batinfo_ocv2cap(adc_bat->info, uv, 25);
 		return val->intval < 0 ? val->intval : 0;
 	}
@@ -137,6 +151,7 @@ static void gab_work(struct work_struct *work)
 {
 	struct gab *adc_bat;
 	struct delayed_work *delayed_work;
+	union power_supply_propval val;
 	int status;
 
 	delayed_work = to_delayed_work(work);
@@ -145,6 +160,9 @@ static void gab_work(struct work_struct *work)
 
 	if (!power_supply_am_i_supplied(adc_bat->psy))
 		adc_bat->status =  POWER_SUPPLY_STATUS_DISCHARGING;
+	else if (!power_supply_get_property_from_supplier(adc_bat->psy,
+			POWER_SUPPLY_PROP_STATUS, &val))
+		adc_bat->status = val.intval;
 	else if (gab_charge_finished(adc_bat))
 		adc_bat->status = POWER_SUPPLY_STATUS_NOT_CHARGING;
 	else
