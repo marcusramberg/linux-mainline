@@ -48,6 +48,7 @@ struct gab {
 	struct delayed_work bat_work;
 	int status;
 	struct gpio_desc *charge_finished;
+	struct power_supply_battery_info *info;
 };
 
 static struct gab *to_generic_bat(struct power_supply *psy)
@@ -115,6 +116,18 @@ static int gab_get_property(struct power_supply *psy,
 		return gab_read_channel(adc_bat, GAB_POWER, &val->intval);
 	case POWER_SUPPLY_PROP_TEMP:
 		return gab_read_channel(adc_bat, GAB_TEMP, &val->intval);
+	case POWER_SUPPLY_PROP_CAPACITY: {
+		int uv, ret;
+
+		/* ponytail: OCV lookup on the loaded voltage, reads low under load */
+		if (!adc_bat->info)
+			return -ENODATA;
+		ret = gab_read_channel(adc_bat, GAB_VOLTAGE, &uv);
+		if (ret < 0)
+			return ret;
+		val->intval = power_supply_batinfo_ocv2cap(adc_bat->info, uv, 25);
+		return val->intval < 0 ? val->intval : 0;
+	}
 	default:
 		return -EINVAL;
 	}
@@ -183,7 +196,7 @@ static int gab_probe(struct platform_device *pdev)
 	 */
 	properties = devm_kcalloc(&pdev->dev,
 				  ARRAY_SIZE(gab_props) +
-				  ARRAY_SIZE(gab_chan_name),
+				  ARRAY_SIZE(gab_chan_name) + 1,
 				  sizeof(*properties),
 				  GFP_KERNEL);
 	if (!properties)
@@ -220,6 +233,9 @@ static int gab_probe(struct platform_device *pdev)
 	if (!any)
 		return dev_err_probe(&pdev->dev, -ENODEV, "Failed to get any ADC channel\n");
 
+	if (adc_bat->channel[GAB_VOLTAGE])
+		properties[index++] = POWER_SUPPLY_PROP_CAPACITY;
+
 	/*
 	 * Total number of properties is equal to static properties
 	 * plus the dynamic properties.Some properties may not be set
@@ -232,6 +248,9 @@ static int gab_probe(struct platform_device *pdev)
 	adc_bat->psy = devm_power_supply_register(&pdev->dev, psy_desc, &psy_cfg);
 	if (IS_ERR(adc_bat->psy))
 		return dev_err_probe(&pdev->dev, PTR_ERR(adc_bat->psy), "Failed to register power-supply device\n");
+
+	if (power_supply_get_battery_info(adc_bat->psy, &adc_bat->info))
+		adc_bat->info = NULL;
 
 	ret = devm_delayed_work_autocancel(&pdev->dev, &adc_bat->bat_work, gab_work);
 	if (ret)
