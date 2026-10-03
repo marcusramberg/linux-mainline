@@ -16,6 +16,8 @@
 #include <drm/drm_panel.h>
 #include <drm/drm_probe_helper.h>
 
+#include <video/mipi_display.h>
+
 struct ft8725 {
 	struct drm_panel panel;
 	struct mipi_dsi_device *dsi;
@@ -89,17 +91,22 @@ static const struct drm_panel_funcs ft8725_panel_funcs = {
 };
 
 /*
- * Two bytes, big endian, 0..2047. Reading 0x52 back returns a single byte,
- * about brightness >> 9. Not the drm_panel's backlight: drm_panel_enable()
- * would send it right as video mode starts, mtk_dsi then fails to switch to
- * command mode and the SoC hangs shortly after.
+ * 11 bits, sent as bits 10:3 then 2:0 (not the big endian u16 of
+ * mipi_dsi_dcs_set_display_brightness_large()). The vendor driver tops out
+ * at 1240 and only goes above in its HBM mode. Not the drm_panel's
+ * backlight: drm_panel_enable() would send it right as video mode starts.
  */
 static int ft8725_bl_update_status(struct backlight_device *bl)
 {
 	struct mipi_dsi_device *dsi = bl_get_data(bl);
+	u16 level = backlight_get_brightness(bl);
+	u8 data[2] = { level >> 3, level & 0x7 };
+	ssize_t ret;
 
-	return mipi_dsi_dcs_set_display_brightness_large(dsi,
-						backlight_get_brightness(bl));
+	ret = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
+				 data, sizeof(data));
+
+	return ret < 0 ? ret : 0;
 }
 
 static const struct backlight_ops ft8725_bl_ops = {
@@ -111,7 +118,7 @@ static int ft8725_probe(struct mipi_dsi_device *dsi)
 	struct device *dev = &dsi->dev;
 	const struct backlight_properties props = {
 		.type = BACKLIGHT_RAW,
-		.brightness = 2047,
+		.brightness = 1240,
 		.max_brightness = 2047,
 	};
 	struct backlight_device *bl;
