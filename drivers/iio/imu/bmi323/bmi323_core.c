@@ -2052,7 +2052,8 @@ static int bmi323_init(struct bmi323_data *data)
 	if (ret)
 		return ret;
 
-	if (FIELD_GET(BMI323_CHIP_ID_MSK, val) != BMI323_CHIP_ID_VAL)
+	val = FIELD_GET(BMI323_CHIP_ID_MSK, val);
+	if (val != BMI323_CHIP_ID_VAL && val != BMI320_CHIP_ID_VAL)
 		return dev_err_probe(data->dev, -EINVAL, "Chip ID mismatch\n");
 
 	ret = bmi323_feature_engine_enable(data, true);
