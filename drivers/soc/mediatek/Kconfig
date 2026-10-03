@@ -89,4 +89,12 @@ config MTK_SOCINFO
 	  information about the SoC to the userspace including the
 	  manufacturer name, marketing name and soc name.
 
+config MTK_CONSYS
+	tristate "MediaTek CONNSYS power-on"
+	depends on ARCH_MEDIATEK || COMPILE_TEST
+	depends on PM
+	help
+	  Powers on the connectivity subsystem (Wi-Fi, Bluetooth, GPS, FM)
+	  of MediaTek SoCs such as MT6768.
+
 endmenu
