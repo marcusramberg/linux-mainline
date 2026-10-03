@@ -1165,6 +1165,17 @@ config MCP3911
 	  This driver can also be built as a module. If so, the module will be
 	  called mcp3911.
 
+config MEDIATEK_MT6358_FGADC
+	tristate "MediaTek MT6358 PMIC fuel gauge ADC driver"
+	depends on MFD_MT6397
+	help
+	  Say yes here to read the battery current measured by the fuel
+	  gauge ADC of the MediaTek MT6358 PMIC, for example as the current
+	  channel of an adc-battery.
+
+	  This driver can also be built as a module. If so, the module will be
+	  called mt6358-fgadc.
+
 config MEDIATEK_MT6359_AUXADC
 	tristate "MediaTek MT6359 PMIC AUXADC driver"
 	depends on MFD_MT6397
