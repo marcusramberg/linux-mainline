@@ -103,6 +103,7 @@ struct bq25890_state {
 	u8 boost_fault;
 	u8 bat_fault;
 	u8 ntc_fault;
+	u8 vbus_status;
 };
 
 struct bq25890_device {
@@ -133,6 +134,7 @@ struct bq25890_device {
 	struct bq25890_state state;
 	unsigned long cooling_state;
 	u8 ichg_req, vreg_req; /* user settings, before the cooling ceiling */
+	u8 typec_iinlim; /* regval, 0 if none */
 
 	struct mutex lock; /* protect state data */
 };
@@ -778,6 +780,44 @@ static int bq25890_charger_get_scaled_iinlim_regval(struct bq25890_device *bq,
 	return bq25890_find_idx(iinlim_ua, TBL_IINLIM);
 }
 
+/*
+ * D+/D- detection only knows BC1.2; set IINLIM to what a Type-C source
+ * advertises instead, after each detection too.
+ */
+static void bq25890_apply_typec_iinlim(struct bq25890_device *bq)
+{
+	int ret;
+
+	if (!bq->typec_iinlim || !bq->state.online)
+		return;
+
+	ret = bq25890_field_read(bq, F_IINLIM);
+	if (ret >= 0 && ret != bq->typec_iinlim)
+		bq25890_field_write(bq, F_IINLIM, bq->typec_iinlim);
+}
+
+static void bq25890_typec_power_changed(struct power_supply *psy)
+{
+	struct bq25890_device *bq = power_supply_get_drvdata(psy);
+	union power_supply_propval val;
+	u8 prev;
+
+	if (power_supply_get_property_from_supplier(psy,
+			POWER_SUPPLY_PROP_CURRENT_MAX, &val))
+		return;
+
+	mutex_lock(&bq->lock);
+	prev = bq->typec_iinlim;
+	bq->typec_iinlim = val.intval > 500000 ?
+		bq25890_charger_get_scaled_iinlim_regval(bq, val.intval) : 0;
+	/* back to default Rp: the old limit no longer holds */
+	if (prev && !bq->typec_iinlim && bq->state.online)
+		bq25890_field_write(bq, F_IINLIM,
+				    bq25890_find_idx(500000, TBL_IINLIM));
+	bq25890_apply_typec_iinlim(bq);
+	mutex_unlock(&bq->lock);
+}
+
 /* On the BQ25892 try to get charger-type info from our supplier */
 static void bq25890_charger_external_power_changed(struct power_supply *psy)
 {
@@ -785,8 +825,10 @@ static void bq25890_charger_external_power_changed(struct power_supply *psy)
 	union power_supply_propval val;
 	int input_current_limit, ret;
 
-	if (bq->chip_version != BQ25892)
+	if (bq->chip_version != BQ25892) {
+		bq25890_typec_power_changed(psy);
 		return;
+	}
 
 	ret = power_supply_get_property_from_supplier(psy,
 						      POWER_SUPPLY_PROP_USB_TYPE,
@@ -832,7 +874,8 @@ static int bq25890_get_chip_state(struct bq25890_device *bq,
 		{F_BOOST_FAULT, &state->boost_fault},
 		{F_BAT_FAULT,	&state->bat_fault},
 		{F_CHG_FAULT,	&state->chrg_fault},
-		{F_NTC_FAULT,	&state->ntc_fault}
+		{F_NTC_FAULT,	&state->ntc_fault},
+		{F_VBUS_STAT,	&state->vbus_status}
 	};
 
 	for (i = 0; i < ARRAY_SIZE(state_fields); i++) {
@@ -887,6 +930,7 @@ static irqreturn_t __bq25890_handle_irq(struct bq25890_device *bq)
 	}
 
 	bq->state = new_state;
+	bq25890_apply_typec_iinlim(bq);
 	power_supply_changed(bq->charger);
 
 	return IRQ_HANDLED;
