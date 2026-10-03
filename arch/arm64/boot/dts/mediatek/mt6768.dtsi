@@ -1532,6 +1532,16 @@
 			};
 		};
 
+		consys: connectivity@18002000 {
+			compatible = "mediatek,mt6768-consys";
+			reg = <0 0x18002000 0 0x1000>, <0 0x180b1000 0 0x1000>;
+			reg-names = "mcu", "misc";
+			power-domains = <&spm MT6768_POWER_DOMAIN_CONN>;
+			resets = <&watchdog 12>, <&watchdog 9>;
+			reset-names = "cpu", "sw";
+			status = "disabled";
+		};
+
 		iommu: iommu@10205000 {
 			compatible = "mediatek,mt6768-m4u";
 			reg = <0 0x10205000 0 0x1000>;
