@@ -326,7 +326,7 @@
 	 * at 0x4a and an sc2150 at 0x4e; on this unit only 0x4e answers, with
 	 * the CPS8851 IDs.
 	 */
-	typec@4e {
+	tcpc: typec@4e {
 		compatible = "convenientpower,cps8851";
 		reg = <0x4e>;
 		interrupts-extended = <&pio 4 IRQ_TYPE_LEVEL_LOW>;
@@ -356,6 +356,8 @@
 		compatible = "ti,bq25890";
 		reg = <0x6a>;
 		interrupts-extended = <&pio 3 IRQ_TYPE_EDGE_FALLING>;
+		/* Type-C current advertisement for IINLIM */
+		power-supplies = <&tcpc>;
 		/* lk leaves it charging; /CE is GPIO150, held low by lk */
 		linux,skip-reset;
 		/* TS is not the battery NTC: JEITA is battery-thermal's job */
