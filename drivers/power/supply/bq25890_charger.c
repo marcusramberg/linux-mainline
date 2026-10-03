@@ -11,6 +11,7 @@
 #include <linux/power/bq25890_charger.h>
 #include <linux/regmap.h>
 #include <linux/regulator/driver.h>
+#include <linux/thermal.h>
 #include <linux/types.h>
 #include <linux/gpio/consumer.h>
 #include <linux/interrupt.h>
@@ -130,6 +131,8 @@ struct bq25890_device {
 	enum bq25890_chip_version chip_version;
 	struct bq25890_init_data init_data;
 	struct bq25890_state state;
+	unsigned long cooling_state;
+	u8 ichg_req, vreg_req; /* user settings, before the cooling ceiling */
 
 	struct mutex lock; /* protect state data */
 };
@@ -682,6 +685,33 @@ static int bq25890_power_supply_get_property(struct power_supply *psy,
 	return 0;
 }
 
+/*
+ * Cooling states for a battery thermal zone: 0 is the configured charge
+ * current, 1 halves and 2 quarters it, both capping the regulation voltage
+ * at 4.2 V (JEITA warm), 3 stops charging.
+ */
+#define BQ25890_COOLING_MAX_STATE	3
+
+/* Caller holds bq->lock */
+static int bq25890_apply_charge_limits(struct bq25890_device *bq)
+{
+	unsigned long state = bq->cooling_state;
+	u8 ichg = min_t(u8, bq->ichg_req, bq->init_data.ichg >> state);
+	u8 vreg = bq->vreg_req;
+	int ret;
+
+	if (state)
+		vreg = min(vreg, bq25890_find_idx(4200000, TBL_VREG));
+
+	ret = bq25890_field_write(bq, F_ICHG, ichg);
+	if (!ret)
+		ret = bq25890_field_write(bq, F_VREG, vreg);
+	if (!ret)
+		ret = bq25890_field_write(bq, F_CHG_CFG,
+					  state < BQ25890_COOLING_MAX_STATE);
+	return ret;
+}
+
 static int bq25890_power_supply_set_property(struct power_supply *psy,
 					     enum power_supply_property psp,
 					     const union power_supply_propval *val)
@@ -695,11 +725,19 @@ static int bq25890_power_supply_set_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT:
 		maxval = bq25890_find_val(bq->init_data.ichg, TBL_ICHG);
 		lval = bq25890_find_idx(min(val->intval, maxval), TBL_ICHG);
-		return bq25890_field_write(bq, F_ICHG, lval);
+		mutex_lock(&bq->lock);
+		bq->ichg_req = lval;
+		ret = bq25890_apply_charge_limits(bq);
+		mutex_unlock(&bq->lock);
+		return ret;
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE:
 		maxval = bq25890_find_val(bq->init_data.vreg, TBL_VREG);
 		lval = bq25890_find_idx(min(val->intval, maxval), TBL_VREG);
-		return bq25890_field_write(bq, F_VREG, lval);
+		mutex_lock(&bq->lock);
+		bq->vreg_req = lval;
+		ret = bq25890_apply_charge_limits(bq);
+		mutex_unlock(&bq->lock);
+		return ret;
 	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
 		lval = bq25890_find_idx(val->intval, TBL_IINLIM);
 		return bq25890_field_write(bq, F_IINLIM, lval);
@@ -1017,6 +1055,49 @@ static const struct power_supply_desc bq25890_power_supply_desc = {
 	.set_property = bq25890_power_supply_set_property,
 	.property_is_writeable = bq25890_power_supply_property_is_writeable,
 	.external_power_changed	= bq25890_charger_external_power_changed,
+};
+
+static int bq25890_cdev_get_max_state(struct thermal_cooling_device *cdev,
+				      unsigned long *state)
+{
+	*state = BQ25890_COOLING_MAX_STATE;
+	return 0;
+}
+
+static int bq25890_cdev_get_cur_state(struct thermal_cooling_device *cdev,
+				      unsigned long *state)
+{
+	struct bq25890_device *bq = cdev->devdata;
+
+	*state = bq->cooling_state;
+	return 0;
+}
+
+static int bq25890_cdev_set_cur_state(struct thermal_cooling_device *cdev,
+				      unsigned long state)
+{
+	struct bq25890_device *bq = cdev->devdata;
+	unsigned long old;
+	int ret;
+
+	if (state > BQ25890_COOLING_MAX_STATE)
+		return -EINVAL;
+
+	mutex_lock(&bq->lock);
+	old = bq->cooling_state;
+	bq->cooling_state = state;
+	ret = bq25890_apply_charge_limits(bq);
+	if (ret)
+		bq->cooling_state = old;
+	mutex_unlock(&bq->lock);
+
+	return ret;
+}
+
+static const struct thermal_cooling_device_ops bq25890_cooling_ops = {
+	.get_max_state = bq25890_cdev_get_max_state,
+	.get_cur_state = bq25890_cdev_get_cur_state,
+	.set_cur_state = bq25890_cdev_set_cur_state,
 };
 
 static int bq25890_power_supply_init(struct bq25890_device *bq)
@@ -1494,6 +1575,8 @@ static int bq25890_probe(struct i2c_client *client)
 		dev_err(dev, "Cannot initialize the chip: %d\n", ret);
 		return ret;
 	}
+	bq->ichg_req = bq->init_data.ichg;
+	bq->vreg_req = bq->init_data.vreg;
 
 	if (client->irq <= 0)
 		client->irq = bq25890_irq_probe(bq);
@@ -1521,6 +1604,17 @@ static int bq25890_probe(struct i2c_client *client)
 	ret = bq25890_power_supply_init(bq);
 	if (ret < 0)
 		return dev_err_probe(dev, ret, "registering power supply\n");
+
+	if (device_property_present(dev, "#cooling-cells")) {
+		struct thermal_cooling_device *cdev;
+
+		cdev = devm_thermal_of_cooling_device_register(dev, 0,
+							       bq->name, bq,
+							       &bq25890_cooling_ops);
+		if (IS_ERR(cdev))
+			return dev_err_probe(dev, PTR_ERR(cdev),
+					     "registering cooling device\n");
+	}
 
 	ret = devm_request_threaded_irq(dev, client->irq, NULL,
 					bq25890_irq_handler_thread,
