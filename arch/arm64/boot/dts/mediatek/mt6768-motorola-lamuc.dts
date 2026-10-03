@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Motorola Moto G17 (lamuc), booted from U-Boot chainloaded by stock lk.
- * Minimal: MT6358 regulators, no display.
+ * MT6358 regulators, display on lk's panel init.
  */
 
 /dts-v1/;
@@ -382,47 +382,28 @@
 	status = "okay";
 };
 
-/*
- * lk's display keeps scanning out its framebuffer by physical address.
- * Probing the pipeline attaches it to the IOMMU and the scanout faults,
- * so leave it alone and let simple-framebuffer draw into it.
- */
-&aal0 {
-	status = "disabled";
+&dsi0 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	status = "okay";
+
+	/* lk powers it up and sends the init sequence; see recon/dtbo/dtbo0.dts */
+	panel@0 {
+		compatible = "djn,ft8725";
+		reg = <0>;
+
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&dsi_out>;
+			};
+		};
+	};
 };
 
-&ccorr0 {
-	status = "disabled";
+&dsi_out {
+	remote-endpoint = <&panel_in>;
 };
 
-&color0 {
-	status = "disabled";
-};
-
-&dither0 {
-	status = "disabled";
-};
-
-&gamma0 {
-	status = "disabled";
-};
-
-&mutex {
-	status = "disabled";
-};
-
-&ovl0 {
-	status = "disabled";
-};
-
-&ovl_2l0 {
-	status = "disabled";
-};
-
-&rdma0 {
-	status = "disabled";
-};
-
-&wdma0 {
-	status = "disabled";
+&mipi_tx0 {
+	status = "okay";
 };
