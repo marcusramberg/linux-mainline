@@ -33,6 +33,7 @@
 #include "mtk_drm_drv.h"
 
 #define DSI_START		0x00
+#define VM_CMD_START			BIT(16)
 
 #define DSI_INTEN		0x08
 
@@ -42,6 +43,7 @@
 #define TE_RDY_INT_FLAG			BIT(2)
 #define VM_DONE_INT_FLAG		BIT(3)
 #define EXT_TE_RDY_INT_FLAG		BIT(4)
+#define VM_CMD_DONE_INT_FLAG		BIT(5)
 #define DSI_BUSY			BIT(31)
 
 #define DSI_CON_CTRL		0x10
@@ -141,6 +143,7 @@
 
 /* DSI_VM_CMD_CON */
 #define VM_CMD_EN			BIT(0)
+#define VM_LONG_PACKET			BIT(1)
 #define TS_VFP_EN			BIT(5)
 
 /* DSI_SHADOW_DEBUG */
@@ -1122,6 +1125,49 @@ static ssize_t mtk_dsi_host_send_cmd(struct mtk_dsi *dsi,
 		return 0;
 }
 
+/*
+ * Send a write in the vertical front porch without leaving video mode.
+ * Stopping the engine mid-frame instead leaves the mutex/RDMA side waiting
+ * for a frame end that never comes (CMDQ timeouts, dark panel).
+ */
+static ssize_t mtk_dsi_vm_cmd_send(struct mtk_dsi *dsi,
+				   const struct mipi_dsi_msg *msg)
+{
+	u32 off = dsi->driver_data->reg_vm_cmd_off;
+	const u8 *tx = msg->tx_buf;
+	u32 val, i, j;
+	int ret;
+
+	if (msg->tx_len > 2) {
+		for (i = 0; i < msg->tx_len; i += 4) {
+			val = 0;
+			for (j = i; j < min_t(u32, i + 4, msg->tx_len); j++)
+				val |= tx[j] << ((j - i) * 8);
+			writel(val, dsi->regs + off + 4 + i);
+		}
+		val = (msg->tx_len << 16) | (msg->type << 8) | VM_LONG_PACKET;
+	} else {
+		val = (tx[0] << 16) | (msg->type << 8);
+		if (msg->tx_len == 2)
+			val |= tx[1] << 24;
+	}
+	writel(val | VM_CMD_EN | TS_VFP_EN, dsi->regs + off);
+
+	/*
+	 * Polled: mtk_dsi_irq() spins on DSI_BUSY, which never clears while
+	 * video runs, so taking this as an interrupt hard-locks the CPU.
+	 */
+	mtk_dsi_mask(dsi, DSI_INTSTA, VM_CMD_DONE_INT_FLAG, 0);
+	mtk_dsi_mask(dsi, DSI_START, VM_CMD_START, 0);
+	mtk_dsi_mask(dsi, DSI_START, VM_CMD_START, VM_CMD_START);
+
+	ret = readl_poll_timeout(dsi->regs + DSI_INTSTA, val,
+				 val & VM_CMD_DONE_INT_FLAG, 20, 100000);
+	mtk_dsi_mask(dsi, DSI_INTSTA, VM_CMD_DONE_INT_FLAG, 0);
+
+	return ret ? ret : msg->tx_len;
+}
+
 static ssize_t mtk_dsi_host_transfer(struct mipi_dsi_host *host,
 				     const struct mipi_dsi_msg *msg)
 {
@@ -1134,7 +1180,15 @@ static ssize_t mtk_dsi_host_transfer(struct mipi_dsi_host *host,
 	u32 dsi_mode;
 	int ret, i;
 
+	/* Registers of an unclocked DSI hang the bus */
+	if (!dsi->refcount)
+		return -EAGAIN;
+
 	dsi_mode = readl(dsi->regs + DSI_MODE_CTRL);
+	if (dsi->enabled && (dsi_mode & MODE) && !MTK_DSI_HOST_IS_READ(msg->type) &&
+	    msg->tx_len && msg->tx_len <= 16)
+		return mtk_dsi_vm_cmd_send(dsi, msg);
+
 	if (dsi_mode & MODE) {
 		mtk_dsi_stop(dsi);
 		ret = mtk_dsi_switch_to_cmd_mode(dsi, VM_DONE_INT_FLAG, 500);
