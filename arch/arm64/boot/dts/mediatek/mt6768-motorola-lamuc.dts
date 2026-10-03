@@ -413,6 +413,36 @@
 	remote-endpoint = <&panel_in>;
 };
 
+&gpu {
+	mali-supply = <&mt6358_vgpu_reg>;
+	status = "okay";
+};
+
+&mt6358_vgpu_reg {
+	regulator-max-microvolt = <800000>;
+	regulator-coupled-with = <&mt6358_vsram_gpu_reg>;
+	regulator-coupled-max-spread = <100000>;
+};
+
+/* vendor: vsram = vgpu + 100 mV */
+&mt6358_vsram_gpu_reg {
+	regulator-min-microvolt = <850000>;
+	regulator-max-microvolt = <1050000>;
+	regulator-coupled-with = <&mt6358_vgpu_reg>;
+	regulator-coupled-max-spread = <100000>;
+};
+
+/* the vendor caps MT6768/MT6769 parts at 823 MHz (OPP 7); G85-class go to 1 GHz */
+&gpu_opp_table {
+	/delete-node/ opp-850000000;
+	/delete-node/ opp-875000000;
+	/delete-node/ opp-900000000;
+	/delete-node/ opp-925000000;
+	/delete-node/ opp-950000000;
+	/delete-node/ opp-975000000;
+	/delete-node/ opp-1000000000;
+};
+
 &mipi_tx0 {
 	status = "okay";
 };
