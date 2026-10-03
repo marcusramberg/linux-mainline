@@ -101,6 +101,23 @@
  * with no-map, makes U-Boot skip its own copies, which carry no no-map.
  */
 &{/reserved-memory} {
+	/* vendor CONNSYS stack (tools/build-wifi.sh); 16 MiB aligned for the EMI remap */
+	consys_mem: consys-reserve-memory {
+		compatible = "mediatek,consys-reserve-memory";
+		no-map;
+		size = <0 0x400000>;
+		alignment = <0 0x1000000>;
+		alloc-ranges = <0 0x40000000 0 0x80000000>;
+	};
+
+	wifi_mem: wifi-reserve-memory {
+		compatible = "shared-dma-pool";
+		no-map;
+		size = <0 0x410000>;
+		alignment = <0 0x1000000>;
+		alloc-ranges = <0 0x40000000 0 0x80000000>;
+	};
+
 	ap-md-c-smem@6e000000 {
 		reg = <0x0 0x6e000000 0x0 0x01620000>;
 		no-map;
@@ -557,10 +574,48 @@
 	};
 };
 
+/*
+ * Vendor wmt_drv/btif/gen4m bindings, as in the stock DT: they index reg and
+ * interrupts by position. mtk-consys (same compatible) is off for this.
+ * Stock's GIC flags are inverted here: its HIGH is LOW behind sysirq.
+ */
 &consys {
+	reg = <0 0x18002000 0 0x1000>, <0 0x10007000 0 0x100>,
+	      <0 0x10001000 0 0x1000>, <0 0x10006000 0 0x1000>,
+	      <0 0x18007000 0 0x1000>, <0 0x180b1000 0 0x1000>,
+	      <0 0x180a3000 0 0x1000>, <0 0x180a5000 0 0x800>,
+	      <0 0x180c1000 0 0x1000>, <0 0x18004000 0 0x1000>;
+	interrupts = <GIC_SPI 284 IRQ_TYPE_LEVEL_LOW>,
+		     <GIC_SPI 78 IRQ_TYPE_LEVEL_LOW>,
+		     <GIC_SPI 287 IRQ_TYPE_EDGE_FALLING>;
+	memory-region = <&consys_mem>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&consys_pins>;
 	vcn18-supply = <&mt6358_vcn18_reg>;
+	vcn28-supply = <&mt6358_vcn28_reg>;
+	vcn33_bt-supply = <&mt6358_vcn33_reg>;
+	vcn33_wifi-supply = <&mt6358_vcn33_reg>;
 	status = "okay";
+};
+
+&{/soc} {
+	btif@1100c000 {
+		compatible = "mediatek,btif";
+		reg = <0 0x1100c000 0 0x1000>, <0 0x11000b80 0 0x80>,
+		      <0 0x11000c00 0 0x80>;
+		interrupts = <GIC_SPI 133 IRQ_TYPE_LEVEL_LOW>,
+			     <GIC_SPI 115 IRQ_TYPE_LEVEL_LOW>,
+			     <GIC_SPI 141 IRQ_TYPE_LEVEL_LOW>;
+		clocks = <&infracfg_ao CLK_INFRA_BTIF>,
+			 <&infracfg_ao CLK_INFRA_AP_DMA>;
+		clock-names = "btifc", "apdmac";
+	};
+
+	wifi@18000000 {
+		compatible = "mediatek,wifi";
+		reg = <0 0x18000000 0 0x100000>;
+		interrupts = <GIC_SPI 285 IRQ_TYPE_LEVEL_LOW>;
+		memory-region = <&wifi_mem>;
+	};
 };
 
