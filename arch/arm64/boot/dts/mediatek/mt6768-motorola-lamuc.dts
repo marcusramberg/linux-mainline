@@ -292,6 +292,15 @@
 };
 
 &pio {
+	spi2_pins: spi2-pins {
+		pins-spi {
+			pinmux = <PINMUX_GPIO25__FUNC_SPI2_CSB>,
+				 <PINMUX_GPIO26__FUNC_SPI2_MO>,
+				 <PINMUX_GPIO27__FUNC_SPI2_CLK>,
+				 <PINMUX_GPIO28__FUNC_SPI2_MI>;
+		};
+	};
+
 	/* SoC-fixed MSDC0 pins, as on penangf */
 	mmc0_default_pins: mmc0-default-pins {
 		pins-clk {
@@ -406,4 +415,26 @@
 
 &mipi_tx0 {
 	status = "okay";
+};
+
+&spi2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&spi2_pins>;
+	mediatek,pad-select = <0>;
+	status = "okay";
+
+	/* touch side of the FT8725 TDDI, firmware already running */
+	touchscreen@0 {
+		compatible = "focaltech,ft8725-spi";
+		reg = <0>;
+		spi-max-frequency = <9600000>;
+		/* the vendor driver says mode 0, but only mode 3 gets answers */
+		spi-cpol;
+		spi-cpha;
+		interrupts-extended = <&pio 0 IRQ_TYPE_EDGE_FALLING>;
+		reset-gpios = <&pio 36 GPIO_ACTIVE_LOW>;
+		/* reports display pixels, same orientation (checked with evtest) */
+		touchscreen-size-x = <1080>;
+		touchscreen-size-y = <2400>;
+	};
 };
