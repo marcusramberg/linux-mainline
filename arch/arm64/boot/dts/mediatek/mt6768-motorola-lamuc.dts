@@ -9,6 +9,7 @@
 #include "mt6768.dtsi"
 #include "mt6358.dtsi"
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/iio/adc/mediatek,mt6358-auxadc.h>
 #include <dt-bindings/usb/pd.h>
 
 / {
@@ -18,6 +19,30 @@
 	aliases {
 		mmc0 = &mmc0;
 		mmc1 = &mmc1;
+	};
+
+	/* vendor gauge profile battery1_profile_t1 (25 C); battery ID unread */
+	battery: battery {
+		compatible = "simple-battery";
+		device-chemistry = "lithium-ion-polymer";
+		charge-full-design-microamp-hours = <5200000>;
+		voltage-min-design-microvolt = <3400000>;
+		voltage-max-design-microvolt = <4448000>;
+		ocv-capacity-celsius = <25>;
+		ocv-capacity-table-0 = <4461000 100>, <4400974 95>, <4349768 90>,
+			<4293264 85>, <4232175 80>, <4170600 75>, <4112594 70>,
+			<4058013 65>, <4008020 60>, <3946004 55>, <3896000 50>,
+			<3864312 45>, <3838800 40>, <3817727 35>, <3799709 30>,
+			<3775875 25>, <3752462 20>, <3722573 15>, <3696189 10>,
+			<3667100 5>, <3205000 0>;
+	};
+
+	fuel-gauge {
+		compatible = "adc-battery";
+		io-channels = <&pmic_adc MT6358_AUXADC_BATADC>;
+		io-channel-names = "voltage";
+		monitored-battery = <&battery>;
+		power-supplies = <&charger>;
 	};
 
 	chosen {
@@ -256,7 +281,7 @@
 	status = "okay";
 
 	/* Suncore CX25890H, a register-compatible BQ25890 clone (same PN) */
-	charger@6a {
+	charger: charger@6a {
 		compatible = "ti,bq25890";
 		reg = <0x6a>;
 		interrupts-extended = <&pio 3 IRQ_TYPE_EDGE_FALLING>;
