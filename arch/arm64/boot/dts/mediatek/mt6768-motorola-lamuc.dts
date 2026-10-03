@@ -272,6 +272,23 @@
 };
 
 /* microSD, conservatively: high speed only */
+&spi1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&spi1_pins>;
+	/* SPI1_A_* */
+	mediatek,pad-select = <0>;
+	status = "okay";
+
+	imu@0 {
+		compatible = "bosch,bmi320", "bosch,bmi323";
+		reg = <0>;
+		spi-max-frequency = <10000000>;
+		mount-matrix = "0", "-1", "0",
+			       "1", "0", "0",
+			       "0", "0", "1";
+	};
+};
+
 /* pins muxed by the bootloader, as in the vendor DT */
 &i2c6 {
 	clock-frequency = <400000>;
@@ -353,6 +370,16 @@
 				 <PINMUX_GPIO119__FUNC_CONN_WF_CTRL2>,
 				 <PINMUX_GPIO120__FUNC_CONN_WB_PTA>,
 				 <PINMUX_GPIO121__FUNC_CONN_HRST_B>;
+		};
+	};
+
+	/* SCP_SPI1 on stock, where the sensor hub firmware drives the IMU */
+	spi1_pins: spi1-pins {
+		pins-spi {
+			pinmux = <PINMUX_GPIO85__FUNC_SPI1_A_MI>,
+				 <PINMUX_GPIO86__FUNC_SPI1_A_CSB>,
+				 <PINMUX_GPIO87__FUNC_SPI1_A_MO>,
+				 <PINMUX_GPIO88__FUNC_SPI1_A_CLK>;
 		};
 	};
 
