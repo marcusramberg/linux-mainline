@@ -20,10 +20,6 @@
 #include "exynos_drm_drv.h"
 #include "exynos_drm_gem.h"
 
-static bool dumb_contig = true;
-module_param(dumb_contig, bool, 0644);
-MODULE_PARM_DESC(dumb_contig, "allocate dumb buffers physically contiguous");
-
 MODULE_IMPORT_NS("DMA_BUF");
 
 static int exynos_drm_gem_mmap(struct drm_gem_object *obj, struct vm_area_struct *vma);
@@ -345,7 +341,7 @@ int exynos_drm_gem_dumb_create(struct drm_file *file_priv,
 	 *	with DRM_IOCTL_MODE_CREATE_DUMB command.
 	 */
 
-	if (is_drm_iommu_supported(dev) && !dumb_contig)
+	if (is_drm_iommu_supported(dev))
 		flags = EXYNOS_BO_NONCONTIG | EXYNOS_BO_WC;
 	else
 		flags = EXYNOS_BO_CONTIG | EXYNOS_BO_WC;
