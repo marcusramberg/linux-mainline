@@ -402,4 +402,14 @@ config SND_SOC_MT6768
 	  SoC. Select Y if you have such device.
 	  If unsure select "N".
 
+config SND_SOC_MT6768_MT6358
+	tristate "ASoC Audio driver for MT6768 with MT6358 codec"
+	depends on SND_SOC_MT6768
+	select SND_SOC_MT6358
+	help
+	  This adds support for ASoC machine driver for MediaTek MT6768
+	  boards with the MT6358 audio codec.
+	  Select Y if you have such device.
+	  If unsure select "N".
+
 endmenu
