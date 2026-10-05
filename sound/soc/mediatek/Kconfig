@@ -393,4 +393,13 @@ config SND_SOC_MT8196_NAU8825
 	  Select Y if you have such device.
 	  If unsure select "N".
 
+config SND_SOC_MT6768
+	tristate "ASoC support for Mediatek MT6768 SoC"
+	depends on COMMON_CLK
+	select SND_SOC_MEDIATEK
+	help
+	  This adds ASoC platform driver support for MediaTek MT6768
+	  SoC. Select Y if you have such device.
+	  If unsure select "N".
+
 endmenu
