@@ -2035,6 +2035,8 @@ static const struct snd_soc_dapm_widget mt6358_dapm_widgets[] = {
 	SND_SOC_DAPM_SUPPLY("LO Stability Enh", MT6358_AUDDEC_ANA_CON7,
 			    RG_LOOUTPUTSTBENH_VAUDP15_SFT, 0, NULL, 0),
 
+	SND_SOC_DAPM_SUPPLY("LO Bias", MT6358_AUDDEC_ANA_CON7,
+			    RG_AUDLOLPWRUP_IBIAS_VAUDP15_SFT, 0, NULL, 0),
 	SND_SOC_DAPM_OUT_DRV("LOL Buffer", MT6358_AUDDEC_ANA_CON7,
 			     RG_AUDLOLPWRUP_VAUDP15_SFT, 0, NULL, 0),
 
@@ -2221,6 +2223,7 @@ static const struct snd_soc_dapm_route mt6358_dapm_routes[] = {
 
 	{"LOL Buffer", NULL, "LOL Mux"},
 	{"LOL Buffer", NULL, "LO Stability Enh"},
+	{"LOL Buffer", NULL, "LO Bias"},
 
 	{"LINEOUT L", NULL, "LOL Buffer"},
 
