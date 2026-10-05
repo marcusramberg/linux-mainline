@@ -7,3 +7,5 @@ snd-soc-mt6768-objs := \
 	mt6768-dai-adda.o
 
 obj-$(CONFIG_SND_SOC_MT6768) += snd-soc-mt6768.o
+
+obj-$(CONFIG_SND_SOC_MT6768_MT6358) += mt6768-mt6358.o
