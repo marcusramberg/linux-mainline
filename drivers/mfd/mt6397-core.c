@@ -87,6 +87,12 @@ static const struct resource mt6359_keys_resources[] = {
 	DEFINE_RES_IRQ_NAMED(MT6359_IRQ_HOMEKEY_R, "homekey_r"),
 };
 
+static const struct resource mt6358_accdet_resources[] = {
+	DEFINE_RES_IRQ_NAMED(MT6358_IRQ_ACCDET, "accdet_irq"),
+	DEFINE_RES_IRQ_NAMED(MT6358_IRQ_ACCDET_EINT0, "accdet_eint0"),
+	DEFINE_RES_IRQ_NAMED(MT6358_IRQ_ACCDET_EINT1, "accdet_eint1"),
+};
+
 static const struct resource mt6359_accdet_resources[] = {
 	DEFINE_RES_IRQ_NAMED(MT6359_IRQ_ACCDET, "accdet_irq"),
 	DEFINE_RES_IRQ_NAMED(MT6359_IRQ_ACCDET_EINT0, "accdet_eint0"),
@@ -228,6 +234,11 @@ static const struct mfd_cell mt6358_devs[] = {
 	}, {
 		.name = "mt6358-sound",
 		.of_compatible = "mediatek,mt6358-sound"
+	}, {
+		.name = "mt6358-accdet",
+		.num_resources = ARRAY_SIZE(mt6358_accdet_resources),
+		.resources = mt6358_accdet_resources,
+		.of_compatible = "mediatek,mt6358-accdet"
 	}, {
 		.name = "mt6358-keys",
 		.num_resources = ARRAY_SIZE(mt6358_keys_resources),
