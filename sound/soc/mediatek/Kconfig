@@ -405,7 +405,9 @@ config SND_SOC_MT6768
 config SND_SOC_MT6768_MT6358
 	tristate "ASoC Audio driver for MT6768 with MT6358 codec"
 	depends on SND_SOC_MT6768
+	depends on IIO && MFD_MT6397
 	select SND_SOC_MT6358
+	select SND_SOC_MT6358_ACCDET
 	help
 	  This adds support for ASoC machine driver for MediaTek MT6768
 	  boards with the MT6358 audio codec.
