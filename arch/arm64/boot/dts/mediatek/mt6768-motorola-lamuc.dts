@@ -356,6 +356,20 @@
 	clock-frequency = <400000>;
 	status = "okay";
 
+	/* analog in from the MT6358 receiver output; earpiece, doubles as top speaker */
+	spk_top: amplifier@34 {
+		compatible = "foursemi,fs1815";
+		reg = <0x34>;
+		sound-name-prefix = "Top";
+	};
+
+	/* analog in from the MT6358 LINEOUT L */
+	spk_bottom: amplifier@35 {
+		compatible = "foursemi,fs1815";
+		reg = <0x35>;
+		sound-name-prefix = "Bottom";
+	};
+
 	/* Suncore CX25890H, a register-compatible BQ25890 clone (same PN) */
 	charger: charger@6a {
 		compatible = "ti,bq25890";
@@ -503,11 +517,6 @@
 		/* stock R_FG_VALUE */
 		shunt-resistor-micro-ohms = <5000>;
 	};
-};
-
-/* not yet: the codec */
-&mt6358codec {
-	status = "disabled";
 };
 
 /* the PMIC "home" key is Volume Down on this phone */
@@ -695,3 +704,73 @@
 	};
 };
 
+&afe {
+	pinctrl-names = "aud_dat_mosi_off", "aud_dat_mosi_on",
+			"aud_dat_miso_off", "aud_dat_miso_on";
+	pinctrl-0 = <&aud_dat_mosi_off_pins>;
+	pinctrl-1 = <&aud_dat_mosi_on_pins>;
+	pinctrl-2 = <&aud_dat_miso_off_pins>;
+	pinctrl-3 = <&aud_dat_miso_on_pins>;
+};
+
+/ {
+	sound: sound {
+		compatible = "mediatek,mt6768-mt6358-sound";
+		mediatek,platform = <&afe>;
+		audio-aux-devs = <&spk_top>, <&spk_bottom>;
+		audio-routing = "Top IN", "Receiver",
+				"Bottom IN", "LINEOUT L";
+	};
+};
+
+&pio {
+	/* mtkaif pads to the MT6358 codec, as in the stock DT */
+	aud_dat_mosi_off_pins: aud-dat-mosi-off-pins {
+		pins-cmd-dat {
+			pinmux = <PINMUX_GPIO136__FUNC_GPIO136>,
+				 <PINMUX_GPIO137__FUNC_GPIO137>,
+				 <PINMUX_GPIO138__FUNC_GPIO138>,
+				 <PINMUX_GPIO139__FUNC_GPIO139>;
+			input-enable;
+			slew-rate = <0>;
+			bias-disable;
+		};
+	};
+
+	aud_dat_mosi_on_pins: aud-dat-mosi-on-pins {
+		pins-cmd-dat {
+			pinmux = <PINMUX_GPIO136__FUNC_AUD_CLK_MOSI>,
+				 <PINMUX_GPIO137__FUNC_AUD_SYNC_MOSI>,
+				 <PINMUX_GPIO138__FUNC_AUD_DAT_MOSI0>,
+				 <PINMUX_GPIO139__FUNC_AUD_DAT_MOSI1>;
+			input-schmitt-enable;
+		};
+	};
+
+	aud_dat_miso_off_pins: aud-dat-miso-off-pins {
+		pins-cmd-dat {
+			pinmux = <PINMUX_GPIO140__FUNC_GPIO140>,
+				 <PINMUX_GPIO141__FUNC_GPIO141>,
+				 <PINMUX_GPIO142__FUNC_GPIO142>,
+				 <PINMUX_GPIO143__FUNC_GPIO143>;
+			input-enable;
+			slew-rate = <0>;
+			bias-disable;
+		};
+	};
+
+	aud_dat_miso_on_pins: aud-dat-miso-on-pins {
+		pins-cmd-dat {
+			pinmux = <PINMUX_GPIO140__FUNC_AUD_CLK_MISO>,
+				 <PINMUX_GPIO141__FUNC_AUD_SYNC_MISO>,
+				 <PINMUX_GPIO142__FUNC_AUD_DAT_MISO0>,
+				 <PINMUX_GPIO143__FUNC_AUD_DAT_MISO1>;
+			input-schmitt-enable;
+		};
+	};
+};
+
+/* the PMIC codec, on the internal mtkaif link */
+&mt6358codec {
+	status = "okay";
+};
