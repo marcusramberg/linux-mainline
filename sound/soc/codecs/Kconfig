@@ -1331,6 +1331,15 @@ config SND_SOC_FS_AMP_LIB
 	select CRC16
 	tristate
 
+config SND_SOC_FS1815
+	tristate "FourSemi FS1815 amplifier"
+	depends on I2C
+	select CRC16
+	select REGMAP_I2C
+	help
+	  Enable support for the FourSemi FS1815 boosted mono amplifier.
+	  The board register setup is loaded from fs1815.fsm.
+
 config SND_SOC_FS210X
 	tristate 'FourSemi FS2104/5S digital audio amplifier'
 	depends on I2C
