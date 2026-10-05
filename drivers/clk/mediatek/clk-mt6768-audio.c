@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 
 #include <linux/clk-provider.h>
+#include <linux/of_platform.h>
 #include <linux/platform_device.h>
 
 #include "clk-mtk.h"
@@ -57,8 +58,24 @@ static const struct of_device_id of_match_clk_mt6768_audio[] = {
 };
 MODULE_DEVICE_TABLE(of, of_match_clk_mt6768_audio);
 
+static int clk_mt6768_audio_probe(struct platform_device *pdev)
+{
+	int r;
+
+	r = mtk_clk_simple_probe(pdev);
+	if (r)
+		return r;
+
+	/* populate the AFE child node */
+	r = devm_of_platform_populate(&pdev->dev);
+	if (r)
+		mtk_clk_simple_remove(pdev);
+
+	return r;
+}
+
 static struct platform_driver clk_mt6768_audio_drv = {
-	.probe = mtk_clk_simple_probe,
+	.probe = clk_mt6768_audio_probe,
 	.remove = mtk_clk_simple_remove,
 	.driver = {
 		.name = "clk-mt6768-audio",
