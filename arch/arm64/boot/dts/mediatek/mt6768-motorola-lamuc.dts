@@ -500,6 +500,18 @@
 		/* stock R_FG_VALUE */
 		shunt-resistor-micro-ohms = <5000>;
 	};
+
+	/* stock settings: MICBIAS1 2.6 V, ACC mic, EINT0 active low */
+	accdet: accdet {
+		compatible = "mediatek,mt6358-accdet";
+		io-channels = <&pmic_adc MT6358_AUXADC_ACCDET>;
+		io-channel-names = "accdet";
+		mediatek,mic-vol = <6>;
+		mediatek,eint-level-pol = <IRQ_TYPE_LEVEL_LOW>;
+		mediatek,pwm-deb-setting = <0x500 0x500 0x1 0x1f0 0x800 0x800
+					    0x20 0x44 0x0 0x0 0xe 0x0 0x0 0x0 0x0>;
+		mediatek,three-key-thr = <0 80 220 400>;
+	};
 };
 
 /* the PMIC "home" key is Volume Down on this phone */
@@ -702,6 +714,7 @@
 	sound: sound {
 		compatible = "mediatek,mt6768-mt6358-sound";
 		mediatek,platform = <&afe>;
+		mediatek,accdet = <&accdet>;
 		audio-aux-devs = <&spk_top>, <&spk_bottom>;
 		audio-routing = "Top IN", "Receiver",
 				"Bottom IN", "LINEOUT L";
