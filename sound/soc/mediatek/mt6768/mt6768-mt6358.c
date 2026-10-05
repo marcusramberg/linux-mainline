@@ -7,22 +7,56 @@
 
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/of_platform.h>
+#include <sound/jack.h>
 #include <sound/soc.h>
 
 #include "mt6768-afe-common.h"
 #include "../common/mtk-afe-platform-driver.h"
 #include "../../codecs/mt6358.h"
+#include "../../codecs/mt6358-accdet.h"
+
+static struct snd_soc_component *mt6768_accdet;
+static struct snd_soc_jack mt6768_headset;
+
+static struct snd_soc_jack_pin mt6768_headset_pins[] = {
+	{ .pin = "Headphone", .mask = SND_JACK_HEADPHONE },
+	{ .pin = "Headset Mic", .mask = SND_JACK_MICROPHONE },
+};
+
+static const struct snd_soc_dapm_widget mt6768_mt6358_widgets[] = {
+	SND_SOC_DAPM_HP("Headphone", NULL),
+	SND_SOC_DAPM_MIC("Headset Mic", NULL),
+};
+
+static const struct snd_soc_dapm_route mt6768_mt6358_routes[] = {
+	{ "Headphone", NULL, "Headphone L" },
+	{ "Headphone", NULL, "Headphone R" },
+	{ "AIN1", NULL, "Headset Mic" },
+};
 
 static int mt6768_mt6358_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_component *codec_component =
 		snd_soc_rtd_to_codec(rtd, 0)->component;
+	int ret;
 
 	/* set mtkaif protocol */
 	mt6358_set_mtkaif_protocol(codec_component,
 				   MT6358_MTKAIF_PROTOCOL_1);
 
-	return 0;
+	if (!mt6768_accdet)
+		return 0;
+
+	ret = snd_soc_card_jack_new_pins(rtd->card, "Headset Jack",
+					 SND_JACK_HEADSET | SND_JACK_BTN_0 |
+					 SND_JACK_BTN_1 | SND_JACK_BTN_2,
+					 &mt6768_headset, mt6768_headset_pins,
+					 ARRAY_SIZE(mt6768_headset_pins));
+	if (ret)
+		return ret;
+
+	return mt6358_accdet_enable_jack_detect(mt6768_accdet, &mt6768_headset);
 }
 
 /* FE */
@@ -90,10 +124,24 @@ static int mt6768_mt6358_late_probe(struct snd_soc_card *card)
 	return min(ret, 0);
 }
 
+/* the jack goes away with the card, ACCDET does not */
+static int mt6768_mt6358_remove(struct snd_soc_card *card)
+{
+	if (mt6768_accdet)
+		mt6358_accdet_enable_jack_detect(mt6768_accdet, NULL);
+
+	return 0;
+}
+
 static struct snd_soc_card mt6768_mt6358_soc_card = {
 	.name = "mt6768-mt6358",
 	.owner = THIS_MODULE,
 	.late_probe = mt6768_mt6358_late_probe,
+	.remove = mt6768_mt6358_remove,
+	.dapm_widgets = mt6768_mt6358_widgets,
+	.num_dapm_widgets = ARRAY_SIZE(mt6768_mt6358_widgets),
+	.dapm_routes = mt6768_mt6358_routes,
+	.num_dapm_routes = ARRAY_SIZE(mt6768_mt6358_routes),
 	.dai_link = mt6768_mt6358_dai_links,
 	.num_links = ARRAY_SIZE(mt6768_mt6358_dai_links),
 };
@@ -101,7 +149,8 @@ static struct snd_soc_card mt6768_mt6358_soc_card = {
 static int mt6768_mt6358_dev_probe(struct platform_device *pdev)
 {
 	struct snd_soc_card *card = &mt6768_mt6358_soc_card;
-	struct device_node *platform_node;
+	struct device_node *platform_node, *np;
+	struct platform_device *accdet_pdev;
 	struct snd_soc_dai_link *dai_link;
 	int ret, i;
 
@@ -118,6 +167,20 @@ static int mt6768_mt6358_dev_probe(struct platform_device *pdev)
 	}
 
 	card->dev = &pdev->dev;
+
+	np = of_parse_phandle(pdev->dev.of_node, "mediatek,accdet", 0);
+	if (np) {
+		accdet_pdev = of_find_device_by_node(np);
+		of_node_put(np);
+		if (accdet_pdev) {
+			mt6768_accdet = snd_soc_lookup_component(&accdet_pdev->dev, NULL);
+			put_device(&accdet_pdev->dev);
+		}
+		if (!mt6768_accdet) {
+			of_node_put(platform_node);
+			return -EPROBE_DEFER;
+		}
+	}
 
 	/* analog speaker amps behind the codec's line/receiver outputs */
 	ret = snd_soc_of_parse_aux_devs(card, "audio-aux-devs");
