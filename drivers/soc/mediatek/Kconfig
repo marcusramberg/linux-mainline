@@ -5,6 +5,14 @@
 menu "MediaTek SoC drivers"
 	depends on ARCH_MEDIATEK || COMPILE_TEST
 
+config MTK_MT6768_CPUHP
+	bool "MediaTek MT6768 CPU hotplug firmware support"
+	depends on ARM64 && HOTPLUG_CPU
+	help
+	  Complete CPU power-off with the MediaTek SiP firmware service after
+	  PSCI CPU_OFF. Without this step the power request remains asserted
+	  and a subsequent PSCI CPU_ON hangs on MT6768 stock firmware.
+
 config MTK_CMDQ
 	tristate "MediaTek CMDQ Support"
 	depends on ARCH_MEDIATEK || COMPILE_TEST
