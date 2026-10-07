@@ -699,6 +699,42 @@
 		interrupts = <GIC_SPI 285 IRQ_TYPE_LEVEL_LOW>;
 		memory-region = <&wifi_mem>;
 	};
+
+	/* vendor eccci (modem/ in the g17 repo); MD1 power is done there */
+	modem@10014000 {
+		compatible = "mediatek,mdcldma";
+		reg = <0 0x10014000 0 0x1000>, <0 0x1021b000 0 0x1000>,
+		      <0 0x10209000 0 0x1000>, <0 0x1020a000 0 0x1000>;
+		interrupts = <GIC_SPI 180 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 164 IRQ_TYPE_LEVEL_LOW>,
+			     <GIC_SPI 165 IRQ_TYPE_LEVEL_LOW>,
+			     <GIC_SPI 75 IRQ_TYPE_EDGE_FALLING>;
+		clocks = <&infracfg_ao CLK_INFRA_CLDMA_BCLK>,
+			 <&infracfg_ao CLK_INFRA_CCIF_AP>,
+			 <&infracfg_ao CLK_INFRA_CCIF_MD>,
+			 <&infracfg_ao CLK_INFRA_CCIF1_AP>,
+			 <&infracfg_ao CLK_INFRA_CCIF1_MD>,
+			 <&infracfg_ao CLK_INFRA_CCIF2_AP>,
+			 <&infracfg_ao CLK_INFRA_CCIF2_MD>;
+		clock-names = "infra-cldma-bclk", "infra-ccif-ap",
+			      "infra-ccif-md", "infra-ccif1-ap",
+			      "infra-ccif1-md", "infra-ccif2-ap",
+			      "infra-ccif2-md";
+		md-vmodem-supply = <&mt6358_vmodem_reg>;
+		md-vmodem-microvolt = <750000>;
+		mediatek,md_id = <0>;
+		mediatek,cldma_capability = <6>;
+		mediatek,mdhif_type = <3>;
+	};
+
+	/* SIM1 detect for the modem, stock dtbo values; eccci finds it by name */
+	MD1_SIM1_HOT_PLUG_EINT {
+		interrupts = <0 8>;
+		debounce = <0 10000>;
+		dedicated = <0 0>;
+		src_pin = <0 1>;
+		sockettype = <0 0>;
+	};
 };
 
 &afe {
