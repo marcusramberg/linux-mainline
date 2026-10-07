@@ -267,7 +267,7 @@ static void mtk_gpt_suspend(struct clock_event_device *clk)
 	writel(0x3f, timer_of_base(to) + GPT_IRQ_ACK_REG);
 }
 
-static struct timer_of to = {
+static const struct timer_of to_template __initconst = {
 	.flags = TIMER_OF_IRQ | TIMER_OF_BASE | TIMER_OF_CLOCK,
 
 	.clkevt = {
@@ -283,20 +283,27 @@ static struct timer_of to = {
 
 static int __init mtk_syst_init(struct device_node *node)
 {
+	struct timer_of *to;
 	int ret;
 
-	to.clkevt.features = CLOCK_EVT_FEAT_DYNIRQ | CLOCK_EVT_FEAT_ONESHOT;
-	to.clkevt.set_state_shutdown = mtk_syst_clkevt_shutdown;
-	to.clkevt.set_state_oneshot = mtk_syst_clkevt_oneshot;
-	to.clkevt.tick_resume = mtk_syst_clkevt_resume;
-	to.clkevt.set_next_event = mtk_syst_clkevt_next_event;
-	to.of_irq.handler = mtk_syst_handler;
+	to = kmemdup(&to_template, sizeof(*to), GFP_KERNEL);
+	if (!to)
+		return -ENOMEM;
 
-	ret = timer_of_init(node, &to);
-	if (ret)
+	to->clkevt.features = CLOCK_EVT_FEAT_DYNIRQ | CLOCK_EVT_FEAT_ONESHOT;
+	to->clkevt.set_state_shutdown = mtk_syst_clkevt_shutdown;
+	to->clkevt.set_state_oneshot = mtk_syst_clkevt_oneshot;
+	to->clkevt.tick_resume = mtk_syst_clkevt_resume;
+	to->clkevt.set_next_event = mtk_syst_clkevt_next_event;
+	to->of_irq.handler = mtk_syst_handler;
+
+	ret = timer_of_init(node, to);
+	if (ret) {
+		kfree(to);
 		return ret;
+	}
 
-	clockevents_config_and_register(&to.clkevt, timer_of_rate(&to),
+	clockevents_config_and_register(&to->clkevt, timer_of_rate(to),
 					TIMER_SYNC_TICKS, 0xffffffff);
 
 	return 0;
@@ -304,36 +311,43 @@ static int __init mtk_syst_init(struct device_node *node)
 
 static int __init mtk_gpt_init(struct device_node *node)
 {
+	struct timer_of *to;
 	int ret;
 
-	to.clkevt.features = CLOCK_EVT_FEAT_PERIODIC | CLOCK_EVT_FEAT_ONESHOT;
-	to.clkevt.set_state_shutdown = mtk_gpt_clkevt_shutdown;
-	to.clkevt.set_state_periodic = mtk_gpt_clkevt_set_periodic;
-	to.clkevt.set_state_oneshot = mtk_gpt_clkevt_shutdown;
-	to.clkevt.tick_resume = mtk_gpt_clkevt_shutdown;
-	to.clkevt.set_next_event = mtk_gpt_clkevt_next_event;
-	to.clkevt.suspend = mtk_gpt_suspend;
-	to.clkevt.resume = mtk_gpt_resume;
-	to.of_irq.handler = mtk_gpt_interrupt;
+	to = kmemdup(&to_template, sizeof(*to), GFP_KERNEL);
+	if (!to)
+		return -ENOMEM;
 
-	ret = timer_of_init(node, &to);
-	if (ret)
+	to->clkevt.features = CLOCK_EVT_FEAT_PERIODIC | CLOCK_EVT_FEAT_ONESHOT;
+	to->clkevt.set_state_shutdown = mtk_gpt_clkevt_shutdown;
+	to->clkevt.set_state_periodic = mtk_gpt_clkevt_set_periodic;
+	to->clkevt.set_state_oneshot = mtk_gpt_clkevt_shutdown;
+	to->clkevt.tick_resume = mtk_gpt_clkevt_shutdown;
+	to->clkevt.set_next_event = mtk_gpt_clkevt_next_event;
+	to->clkevt.suspend = mtk_gpt_suspend;
+	to->clkevt.resume = mtk_gpt_resume;
+	to->of_irq.handler = mtk_gpt_interrupt;
+
+	ret = timer_of_init(node, to);
+	if (ret) {
+		kfree(to);
 		return ret;
+	}
 
 	/* Configure clock source */
-	mtk_gpt_setup(&to, TIMER_CLK_SRC, GPT_CTRL_OP_FREERUN);
-	clocksource_mmio_init(timer_of_base(&to) + GPT_CNT_REG(TIMER_CLK_SRC),
-			      node->name, timer_of_rate(&to), 300, 32,
+	mtk_gpt_setup(to, TIMER_CLK_SRC, GPT_CTRL_OP_FREERUN);
+	clocksource_mmio_init(timer_of_base(to) + GPT_CNT_REG(TIMER_CLK_SRC),
+			      node->name, timer_of_rate(to), 300, 32,
 			      clocksource_mmio_readl_up);
-	gpt_sched_reg = timer_of_base(&to) + GPT_CNT_REG(TIMER_CLK_SRC);
-	sched_clock_register(mtk_gpt_read_sched_clock, 32, timer_of_rate(&to));
+	gpt_sched_reg = timer_of_base(to) + GPT_CNT_REG(TIMER_CLK_SRC);
+	sched_clock_register(mtk_gpt_read_sched_clock, 32, timer_of_rate(to));
 
 	/* Configure clock event */
-	mtk_gpt_setup(&to, TIMER_CLK_EVT, GPT_CTRL_OP_REPEAT);
-	clockevents_config_and_register(&to.clkevt, timer_of_rate(&to),
+	mtk_gpt_setup(to, TIMER_CLK_EVT, GPT_CTRL_OP_REPEAT);
+	clockevents_config_and_register(&to->clkevt, timer_of_rate(to),
 					TIMER_SYNC_TICKS, 0xffffffff);
 
-	mtk_gpt_enable_irq(&to, TIMER_CLK_EVT);
+	mtk_gpt_enable_irq(to, TIMER_CLK_EVT);
 
 	return 0;
 }
