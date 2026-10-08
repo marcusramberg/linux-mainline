@@ -698,17 +698,13 @@ static void mtk_seninf_top_mux_setup(struct mtk_seninf *priv,
 	mtk_seninf_write(priv, SENINF_TOP_MUX_CTRL, val);
 
 	/*
-	 * We currently support only seninf version 3.0
-	 * where camsv0 and camsv1 are hardwired respectively to
-	 * SENINF_CAM2 and SENINF_CAM3 i.e :
-	 *  - SENINF_TOP_CAM_MUX_CTRL[11:8] = 0
-	 *  - SENINF_TOP_CAM_MUX_CTRL[15:12] = 1
-	 * so we hardcode it here
+	 * The CAMSV instances hang off SENINF_CAM2 onwards: route MUX n to
+	 * CAM(n + 2), one 4-bit source field per CAM output.
 	 */
-	mtk_seninf_update(priv, SENINF_TOP_CAM_MUX_CTRL,
-			  SENINF_CAM2_MUX_SRC_SEL, 0);
-	mtk_seninf_update(priv, SENINF_TOP_CAM_MUX_CTRL,
-			  SENINF_CAM3_MUX_SRC_SEL, 1);
+	val = mtk_seninf_read(priv, SENINF_TOP_CAM_MUX_CTRL)
+		    & ~(0xf << ((mux->mux_id + 2) * 4));
+	val |= mux->mux_id << ((mux->mux_id + 2) * 4);
+	mtk_seninf_write(priv, SENINF_TOP_CAM_MUX_CTRL, val);
 }
 
 static void mtk_seninf_start(struct mtk_seninf *priv,
