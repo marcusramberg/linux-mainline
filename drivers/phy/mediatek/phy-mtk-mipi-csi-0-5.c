@@ -12,6 +12,7 @@
 #include <linux/io.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/of_platform.h>
 #include <linux/phy/phy.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
@@ -28,7 +29,34 @@ struct mtk_mipi_cdphy_port {
 	u32 type;
 	u32 mode;
 	u32 num_lanes;
+	/* port whose CSR_CSI_EN gates the receivers, NULL if none */
+	struct mtk_mipi_cdphy_port *csi_en;
+	unsigned int csi_en_users;
 };
+
+static DEFINE_MUTEX(mtk_mipi_csi_en_lock);
+
+static void mtk_mipi_csi_en(struct mtk_mipi_cdphy_port *port, bool on)
+{
+	struct mtk_mipi_cdphy_port *owner = port->csi_en;
+	void __iomem *base;
+
+	if (!owner)
+		return;
+
+	base = owner->base;
+	mutex_lock(&mtk_mipi_csi_en_lock);
+	if (on && !owner->csi_en_users++) {
+		mtk_phy_set_bits(base + MIPI_RX_WRAPPER80_CSIXA, CSR_CSI_EN);
+		mtk_phy_set_bits(base + CSIXB_OFFSET + MIPI_RX_WRAPPER80_CSIXA,
+				 CSR_CSI_EN);
+	} else if (!on && !--owner->csi_en_users) {
+		mtk_phy_clear_bits(base + MIPI_RX_WRAPPER80_CSIXA, CSR_CSI_EN);
+		mtk_phy_clear_bits(base + CSIXB_OFFSET + MIPI_RX_WRAPPER80_CSIXA,
+				   CSR_CSI_EN);
+	}
+	mutex_unlock(&mtk_mipi_csi_en_lock);
+}
 
 enum PHY_TYPE {
 	DPHY = 0,
@@ -139,6 +167,7 @@ static int mtk_mipi_phy_power_on(struct phy *phy)
 	mtk_phy_update_field(base + CSIXB_OFFSET + MIPI_RX_ANA24_CSIXA, RG_CSIXA_RESERVE, 0x40);
 	mtk_phy_update_field(base + MIPI_RX_WRAPPER80_CSIXA, CSR_CSI_RST_MODE, 0);
 	mtk_phy_update_field(base + CSIXB_OFFSET + MIPI_RX_WRAPPER80_CSIXA, CSR_CSI_RST_MODE, 0);
+	mtk_mipi_csi_en(port, true);
 	/* ANA power on */
 	mtk_phy_update_field(base + MIPI_RX_ANA00_CSIXA, RG_CSIXA_BG_CORE_EN, 1);
 	mtk_phy_update_field(base + CSIXB_OFFSET + MIPI_RX_ANA00_CSIXA, RG_CSIXA_BG_CORE_EN, 1);
@@ -160,6 +189,8 @@ static int mtk_mipi_phy_power_off(struct phy *phy)
 
 	mtk_phy_update_field(base + CSIXB_OFFSET + MIPI_RX_ANA00_CSIXA, RG_CSIXA_BG_CORE_EN, 0);
 	mtk_phy_update_field(base + CSIXB_OFFSET + MIPI_RX_ANA00_CSIXA, RG_CSIXA_BG_LPF_EN, 0);
+
+	mtk_mipi_csi_en(port, false);
 
 	return 0;
 }
@@ -207,6 +238,49 @@ static const struct phy_ops mtk_cdphy_ops = {
 	.owner		= THIS_MODULE,
 };
 
+static void mtk_mipi_csi_en_put(void *data)
+{
+	put_device(data);
+}
+
+/*
+ * On MT6768 only the CSI0 receiver's CSR_CSI_EN matters, and it gates every
+ * receiver: other ports point to CSI0 with mediatek,csi-en-phy.
+ */
+static int mtk_mipi_csi_en_get(struct mtk_mipi_cdphy_port *port)
+{
+	struct device *dev = port->dev;
+	struct platform_device *pdev;
+	struct device_node *np;
+	int ret;
+
+	np = of_parse_phandle(dev->of_node, "mediatek,csi-en-phy", 0);
+	if (!np) {
+		port->csi_en = port;
+		return 0;
+	}
+
+	pdev = of_find_device_by_node(np);
+	of_node_put(np);
+	if (!pdev)
+		return -EPROBE_DEFER;
+
+	ret = devm_add_action_or_reset(dev, mtk_mipi_csi_en_put, &pdev->dev);
+	if (ret)
+		return ret;
+
+	port->csi_en = platform_get_drvdata(pdev);
+	if (!port->csi_en)
+		return dev_err_probe(dev, -EPROBE_DEFER,
+				     "CSI0 receiver not probed yet\n");
+
+	/* csi_en is devm memory of CSI0: unbind us before it goes */
+	if (!device_link_add(dev, &pdev->dev, DL_FLAG_AUTOREMOVE_CONSUMER))
+		return -EINVAL;
+
+	return 0;
+}
+
 static int mtk_mipi_cdphy_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -227,6 +301,12 @@ static int mtk_mipi_cdphy_probe(struct platform_device *pdev)
 	port->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(port->base))
 		return PTR_ERR(port->base);
+
+	if (device_get_match_data(dev)) {
+		ret = mtk_mipi_csi_en_get(port);
+		if (ret)
+			return ret;
+	}
 
 	ret = of_property_read_u32(dev->of_node, "num-lanes", &port->num_lanes);
 	if (ret) {
@@ -275,6 +355,8 @@ static int mtk_mipi_cdphy_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id mtk_mipi_cdphy_of_match[] = {
+	/* MT6768 gates the receiver clocks in the CSI0 PHY block */
+	{ .compatible = "mediatek,mt6768-csi-rx", .data = (void *)true },
 	{ .compatible = "mediatek,mt8365-csi-rx" },
 	{ /* sentinel */},
 };
