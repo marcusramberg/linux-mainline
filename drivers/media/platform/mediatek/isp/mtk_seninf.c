@@ -514,14 +514,10 @@ static s64 mtk_seninf_get_clk_divider(struct mtk_seninf_input *input,
 {
 	struct media_entity *entity = &input->seninf->subdev.entity;
 	struct media_pad *pad;
-	struct v4l2_subdev *sd;
 	s64 link_frequency, pixel_clock;
 
 	pad = media_pad_remote_pad_first(&entity->pads[pad_num]);
-
-	sd = media_entity_to_v4l2_subdev(pad->entity);
-	link_frequency = v4l2_get_link_freq(sd->ctrl_handler, bpp,
-					    num_data_lanes * 2);
+	link_frequency = v4l2_get_link_freq(pad, bpp, num_data_lanes * 2);
 	pixel_clock = div_u64(link_frequency * 2 * num_data_lanes, bpp);
 	/*
 	 * According to datasheet: Sensor master clock = ISP_clock/(CLKCNT +1)
