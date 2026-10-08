@@ -28,6 +28,7 @@ struct mtk_mipi_cdphy_port {
 	u32 type;
 	u32 mode;
 	u32 num_lanes;
+	bool csr_csi_en;
 };
 
 enum PHY_TYPE {
@@ -139,6 +140,10 @@ static int mtk_mipi_phy_power_on(struct phy *phy)
 	mtk_phy_update_field(base + CSIXB_OFFSET + MIPI_RX_ANA24_CSIXA, RG_CSIXA_RESERVE, 0x40);
 	mtk_phy_update_field(base + MIPI_RX_WRAPPER80_CSIXA, CSR_CSI_RST_MODE, 0);
 	mtk_phy_update_field(base + CSIXB_OFFSET + MIPI_RX_WRAPPER80_CSIXA, CSR_CSI_RST_MODE, 0);
+	if (port->csr_csi_en) {
+		mtk_phy_set_bits(base + MIPI_RX_WRAPPER80_CSIXA, CSR_CSI_EN);
+		mtk_phy_set_bits(base + CSIXB_OFFSET + MIPI_RX_WRAPPER80_CSIXA, CSR_CSI_EN);
+	}
 	/* ANA power on */
 	mtk_phy_update_field(base + MIPI_RX_ANA00_CSIXA, RG_CSIXA_BG_CORE_EN, 1);
 	mtk_phy_update_field(base + CSIXB_OFFSET + MIPI_RX_ANA00_CSIXA, RG_CSIXA_BG_CORE_EN, 1);
@@ -160,6 +165,11 @@ static int mtk_mipi_phy_power_off(struct phy *phy)
 
 	mtk_phy_update_field(base + CSIXB_OFFSET + MIPI_RX_ANA00_CSIXA, RG_CSIXA_BG_CORE_EN, 0);
 	mtk_phy_update_field(base + CSIXB_OFFSET + MIPI_RX_ANA00_CSIXA, RG_CSIXA_BG_LPF_EN, 0);
+
+	if (port->csr_csi_en) {
+		mtk_phy_clear_bits(base + MIPI_RX_WRAPPER80_CSIXA, CSR_CSI_EN);
+		mtk_phy_clear_bits(base + CSIXB_OFFSET + MIPI_RX_WRAPPER80_CSIXA, CSR_CSI_EN);
+	}
 
 	return 0;
 }
@@ -223,6 +233,7 @@ static int mtk_mipi_cdphy_probe(struct platform_device *pdev)
 	dev_set_drvdata(dev, port);
 
 	port->dev = dev;
+	port->csr_csi_en = (uintptr_t)device_get_match_data(dev);
 
 	port->base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(port->base))
@@ -275,6 +286,8 @@ static int mtk_mipi_cdphy_probe(struct platform_device *pdev)
 }
 
 static const struct of_device_id mtk_mipi_cdphy_of_match[] = {
+	/* MT6768 gates the receiver clock in the PHY block itself */
+	{ .compatible = "mediatek,mt6768-csi-rx", .data = (void *)true },
 	{ .compatible = "mediatek,mt8365-csi-rx" },
 	{ /* sentinel */},
 };
