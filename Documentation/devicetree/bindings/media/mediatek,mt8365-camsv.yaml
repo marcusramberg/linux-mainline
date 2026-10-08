@@ -18,9 +18,12 @@ description:
 
 properties:
   compatible:
-    const: mediatek,mt8365-camsv
+    enum:
+      - mediatek,mt6768-camsv
+      - mediatek,mt8365-camsv
 
   reg:
+    minItems: 1
     items:
       - description: camsv base
       - description: img0 base
@@ -45,7 +48,8 @@ properties:
       - const: camsv
 
   iommus:
-    maxItems: 1
+    minItems: 1
+    maxItems: 3
 
   ports:
     $ref: /schemas/graph.yaml#/properties/ports
@@ -66,6 +70,23 @@ required:
   - power-domains
   - iommus
   - ports
+
+allOf:
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: mediatek,mt8365-camsv
+    then:
+      properties:
+        reg:
+          minItems: 3
+        iommus:
+          maxItems: 1
+    else:
+      properties:
+        reg:
+          maxItems: 1
 
 additionalProperties: false
 
