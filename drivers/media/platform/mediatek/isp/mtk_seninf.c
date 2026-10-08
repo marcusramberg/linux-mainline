@@ -725,9 +725,12 @@ static void mtk_seninf_start(struct mtk_seninf *priv,
 	mtk_seninf_top_mux_setup(priv, input->seninf_id, mux);
 }
 
-static void mtk_seninf_stop(struct mtk_seninf_input *input)
+static void mtk_seninf_stop(struct mtk_seninf_input *input,
+			    struct mtk_seninf_mux *mux)
 {
 	unsigned int val;
+
+	mtk_seninf_mux_update(mux, SENINF_MUX_CTRL, SENINF_MUX_EN, 0);
 
 	/* Disable CSI2(2.5G) first */
 	val = mtk_seninf_inuput_read(input, SENINF_CSI2_CTL);
@@ -793,7 +796,7 @@ static int seninf_enable_streams(struct v4l2_subdev *sd,
 	return 0;
 
 err_no_stream:
-	mtk_seninf_stop(input);
+	mtk_seninf_stop(input, mux);
 	pm_runtime_mark_last_busy(priv->dev);
 	pm_runtime_put_autosuspend(priv->dev);
 
@@ -806,6 +809,7 @@ static int seninf_disable_streams(struct v4l2_subdev *sd,
 {
 	struct mtk_seninf *priv = sd_to_mtk_seninf(sd);
 	struct mtk_seninf_input *input;
+	struct mtk_seninf_mux *mux;
 	struct v4l2_subdev *source;
 	u32 sink_pad;
 	int ret;
@@ -825,6 +829,7 @@ static int seninf_disable_streams(struct v4l2_subdev *sd,
 	}
 
 	input = &priv->inputs[sink_pad];
+	mux = &priv->muxes[pad - priv->conf->nb_inputs];
 
 	source = input->source_sd;
 	ret = v4l2_subdev_disable_streams(source, input->source_pad->index, BIT(0));
@@ -833,7 +838,7 @@ static int seninf_disable_streams(struct v4l2_subdev *sd,
 			"failed to stop source %s: %d\n",
 			source->entity.name, ret);
 
-	mtk_seninf_stop(input);
+	mtk_seninf_stop(input, mux);
 	pm_runtime_mark_last_busy(priv->dev);
 	pm_runtime_put_autosuspend(priv->dev);
 	return ret;
