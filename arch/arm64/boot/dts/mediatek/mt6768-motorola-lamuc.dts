@@ -339,6 +339,12 @@
 	pinctrl-0 = <&i2c2_pins>;
 	status = "okay";
 
+	main_vcm: lens@c {
+		compatible = "giantec,gt9764";
+		reg = <0x0c>;
+		vdd-supply = <&mt6358_vldo28_reg>;
+	};
+
 	camera@10 {
 		compatible = "sony,imx882";
 		reg = <0x10>;
@@ -351,6 +357,7 @@
 		dovdd-supply = <&mt6358_vcamio_reg>;
 		dvdd-supply = <&mt6358_vcamd_reg>;
 		avdd-supply = <&mt6358_vcama1_reg>;
+		lens-focus = <&main_vcm>;
 
 		port {
 			imx882_ep: endpoint {
