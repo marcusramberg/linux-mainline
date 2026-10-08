@@ -1034,6 +1034,7 @@ static int seninf_subdev_init(struct mtk_seninf *priv)
 	v4l2_subdev_init(sd, &seninf_subdev_ops);
 	sd->internal_ops = &seninf_subdev_internal_ops;
 	sd->dev = priv->dev;
+	sd->fwnode = dev_fwnode(priv->dev);
 	sd->entity.function = MEDIA_ENT_F_VID_IF_BRIDGE;
 	sd->entity.ops = &seninf_media_ops;
 	sd->flags |= V4L2_SUBDEV_FL_HAS_DEVNODE | V4L2_SUBDEV_FL_HAS_EVENTS |
