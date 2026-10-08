@@ -72,6 +72,8 @@
 #define DW9800K_MODE_SAC_SHIFT		6
 #define DW9800K_DEFAULT_VCM_FREQ		0x10
 
+#define GT9764_DEFAULT_VCM_FREQ		0x6a
+
 #define to_dw9719_device(x) container_of(x, struct dw9719_device, sd)
 
 enum dw9719_model {
@@ -79,6 +81,7 @@ enum dw9719_model {
 	DW9719,
 	DW9761,
 	DW9800K,
+	GT9764,
 };
 
 struct dw9719_device {
@@ -129,12 +132,15 @@ static int dw9719_power_up(struct dw9719_device *dw9719, bool detect)
 	 * then retry the write.
 	 */
 	cci_write(dw9719->regmap, reg_pwr, DW9719_STANDBY, NULL);
-	/* the jiggle is expected to fail, don't even log that as error */
-	fsleep(200);
+	/*
+	 * the jiggle is expected to fail, don't even log that as error;
+	 * the GT9764 keeps NAKing for longer than 200us
+	 */
+	fsleep(dw9719->model == GT9764 ? 5000 : 200);
 	cci_write(dw9719->regmap, reg_pwr, DW9719_STANDBY, &ret);
 
 	if (detect) {
-		/* These models do not have an INFO register */
+		/* No INFO register, or no known ID in it */
 		switch (dw9719->model) {
 		case DW9718S:
 			dw9719->sac_mode = DW9718S_DEFAULT_SAC;
@@ -143,6 +149,10 @@ static int dw9719_power_up(struct dw9719_device *dw9719, bool detect)
 		case DW9800K:
 			dw9719->sac_mode = DW9800K_DEFAULT_SAC;
 			dw9719->vcm_freq = DW9800K_DEFAULT_VCM_FREQ;
+			goto props;
+		case GT9764:
+			dw9719->sac_mode = DW9719_DEFAULT_SAC;
+			dw9719->vcm_freq = GT9764_DEFAULT_VCM_FREQ;
 			goto props;
 		default:
 			break;
@@ -212,6 +222,7 @@ props:
 			  DW9761_DEFAULT_VCM_PRELOAD, &ret);
 		fallthrough;
 	case DW9719:
+	case GT9764:
 		cci_write(dw9719->regmap, DW9719_CONTROL, DW9719_ENABLE_RINGING, &ret);
 		cci_write(dw9719->regmap, DW9719_MODE, dw9719->mode_low_bits |
 				  (dw9719->sac_mode << DW9719_MODE_SAC_SHIFT), &ret);
@@ -453,6 +464,7 @@ static const struct of_device_id dw9719_of_table[] = {
 	{ .compatible = "dongwoon,dw9719", .data = (const void *)DW9719 },
 	{ .compatible = "dongwoon,dw9761", .data = (const void *)DW9761 },
 	{ .compatible = "dongwoon,dw9800k", .data = (const void *)DW9800K },
+	{ .compatible = "giantec,gt9764", .data = (const void *)GT9764 },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, dw9719_of_table);
