@@ -14,6 +14,7 @@ description:
   with 100 mA output current sink capability, designed for linear control of
   voice coil motors (VCM) in camera lenses. This chip provides a Smart Actuator
   Control (SAC) mode intended for driving voice coil lenses in camera modules.
+  The Giantec GT9764 is register compatible with the DW9719.
 
 properties:
   compatible:
@@ -22,6 +23,7 @@ properties:
       - dongwoon,dw9719
       - dongwoon,dw9761
       - dongwoon,dw9800k
+      - giantec,gt9764
 
   reg:
     maxItems: 1
