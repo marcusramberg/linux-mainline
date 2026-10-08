@@ -164,8 +164,8 @@ static const struct scpsys_domain_data scpsys_domain_data_mt6768[] = {
 		.ctl_offs = 0x344,
 		.pwr_sta_offs = 0x0180,
 		.pwr_sta2nd_offs = 0x0184,
-		.sram_pdn_bits = GENMASK(8, 8),
-		.sram_pdn_ack_bits = GENMASK(12, 12),
+		.sram_pdn_bits = GENMASK(9, 8),
+		.sram_pdn_ack_bits = GENMASK(13, 12),
 		.bp_cfg = {
 			BUS_PROT_INFRA_NOACK_1(BIT(19) | BIT(21)),
 			BUS_PROT_SMI(BIT(3)),
