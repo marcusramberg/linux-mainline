@@ -20,6 +20,7 @@ description:
 properties:
   compatible:
     enum:
+      - mediatek,mt6768-csi-rx
       - mediatek,mt8365-csi-rx
 
   reg:
@@ -46,11 +47,28 @@ properties:
     const: 10
     $ref: /schemas/types.yaml#/definitions/uint32
 
+  mediatek,csi-en-phy:
+    description:
+      The CSI0 receiver. On MT6768 its wrapper register gates the receiver
+      clocks of all ports, so the other ports point to it.
+    $ref: /schemas/types.yaml#/definitions/phandle
+
 required:
   - compatible
   - reg
   - num-lanes
   - '#phy-cells'
+
+allOf:
+  - if:
+      not:
+        properties:
+          compatible:
+            contains:
+              const: mediatek,mt6768-csi-rx
+    then:
+      properties:
+        mediatek,csi-en-phy: false
 
 additionalProperties: false
 
