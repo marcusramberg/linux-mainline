@@ -332,6 +332,36 @@
 };
 
 /* pins muxed by the bootloader, as in the vendor DT */
+/* main rear camera */
+&i2c2 {
+	clock-frequency = <400000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c2_pins>;
+	status = "okay";
+
+	camera@10 {
+		compatible = "sony,imx882";
+		reg = <0x10>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&camera0_mclk_pins>;
+		clocks = <&topckgen CLK_TOP_CAMTG_SEL>;
+		assigned-clocks = <&topckgen CLK_TOP_CAMTG_SEL>;
+		assigned-clock-parents = <&topckgen CLK_TOP_USB20_192M_D8>;
+		reset-gpios = <&pio 101 GPIO_ACTIVE_LOW>;
+		dovdd-supply = <&mt6358_vcamio_reg>;
+		dvdd-supply = <&mt6358_vcamd_reg>;
+		avdd-supply = <&mt6358_vcama1_reg>;
+
+		port {
+			imx882_ep: endpoint {
+				remote-endpoint = <&seninf_csi0_ep>;
+				data-lanes = <1 2 3 4>;
+				link-frequencies = /bits/ 64 <500000000>;
+			};
+		};
+	};
+};
+
 /* auxiliary rear camera */
 &i2c4 {
 	clock-frequency = <400000>;
@@ -849,6 +879,13 @@
 		};
 	};
 
+	camera0_mclk_pins: camera0-mclk-pins {
+		pins {
+			pinmux = <PINMUX_GPIO99__FUNC_CMMCLK0>;
+			drive-strength = <4>;
+		};
+	};
+
 	camera2_mclk_pins: camera2-mclk-pins {
 		pins {
 			pinmux = <PINMUX_GPIO108__FUNC_CMMCLK2>;
@@ -857,6 +894,14 @@
 	};
 
 	/* nothing else pulls the camera buses up */
+	i2c2_pins: i2c2-pins {
+		pins {
+			pinmux = <PINMUX_GPIO103__FUNC_SCL2>,
+				 <PINMUX_GPIO104__FUNC_SDA2>;
+			bias-pull-up;
+		};
+	};
+
 	i2c4_pins: i2c4-pins {
 		pins {
 			pinmux = <PINMUX_GPIO105__FUNC_SCL4>,
@@ -877,7 +922,22 @@
 };
 
 /* the PMIC codec, on the internal mtkaif link */
+/* IMX882 core and analog */
+&mt6358_vcamd_reg {
+	regulator-min-microvolt = <1100000>;
+	regulator-max-microvolt = <1100000>;
+};
+
+&mt6358_vcama1_reg {
+	regulator-min-microvolt = <2800000>;
+	regulator-max-microvolt = <2800000>;
+};
+
 &mt6358codec {
+	status = "okay";
+};
+
+&mipi_csi0 {
 	status = "okay";
 };
 
@@ -887,6 +947,14 @@
 
 &seninf {
 	status = "okay";
+};
+
+&seninf_port0 {
+	seninf_csi0_ep: endpoint {
+		remote-endpoint = <&imx882_ep>;
+		clock-lanes = <2>;
+		data-lanes = <1 3 0 4>;
+	};
 };
 
 &seninf_port1 {
