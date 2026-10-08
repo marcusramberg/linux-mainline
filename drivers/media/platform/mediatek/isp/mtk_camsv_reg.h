@@ -29,6 +29,17 @@
 #define CAMSV_IMGO_FBC					0x001C
 #define CAMSV_CLK_EN					0x0020
 #define CAMSV_PAK					0x003c
+
+/* ISP4.0: windows into the single CAMSV block, and its frame header enables */
+#define CAMSV4_TOP_OFFSET				0x0010
+#define CAMSV4_IMGO_OFFSET				0x0220
+#define CAMSV4_TG_OFFSET				0x04f0
+#define CAMSV4_IMGO_SIZE_SHIFT				0x0008
+#define CAMSV4_FRAME_HEADER_EN				0x0e00
+/* DMA bus width in bytes minus one: 1, 3 for one and two pixels per clock */
+#define CAMSV4_IMGO_STRIDE_BUS_SIZE			GENMASK(18, 16)
+#define CAMSV4_IMGO_STRIDE_BUS_SIZE_EN			BIT(24)
+#define CAMSV4_PAK_MODE					GENMASK(1, 0)
 #define CAMSV_PAK_PAK_MODE_RAW_14			0x0
 #define CAMSV_PAK_PAK_MODE_RAW_12			0x1
 #define CAMSV_PAK_PAK_MODE_RAW_10			0x2
@@ -57,6 +68,7 @@
 #define CAMSV_IMGO_SV_CON_MAX_BURST_LEN_MASK		GENMASK(31, 28)
 #define CAMSV_IMGO_SV_CON_MAX_BURST_LEN_SHIFT		28
 #define CAMSV_IMGO_SV_CON2				0x0018
+#define CAMSV_IMGO_SV_CON3				0x001c
 #define CAMSV_IMGO_SV_CON2_FIFO_PREP_PRI_THRL_MASK	GENMASK(15, 8)
 #define CAMSV_IMGO_SV_CON2_FIFO_PREP_PRI_THRL_SHIFT	8
 #define CAMSV_IMGO_SV_CON2_FIFO_PREP_PRI_THRH_MASK	GENMASK(23, 16)
