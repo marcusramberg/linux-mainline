@@ -22,7 +22,9 @@ description:
 
 properties:
   compatible:
-    const: mediatek,mt8365-seninf
+    enum:
+      - mediatek,mt6768-seninf
+      - mediatek,mt8365-seninf
 
   reg:
     maxItems: 1
@@ -45,17 +47,17 @@ properties:
 
   phys:
     minItems: 2
-    maxItems: 2
+    maxItems: 3
     description:
-      phandle to the PHYs connected to CSI0/A, CSI1, CSI0B
+      phandle to the PHYs connected to CSI0/A, CSI1, CSI2, CSI0B
 
   phy-names:
     description:
       list of PHYs names
     minItems: 2
-    maxItems: 2
+    maxItems: 3
     items:
-      enum: [ csi0, csi1, csi0b]
+      enum: [ csi0, csi1, csi2, csi0b]
 
   ports:
     $ref: /schemas/graph.yaml#/properties/ports
@@ -153,25 +155,63 @@ properties:
         $ref: /schemas/graph.yaml#/properties/port
         description: connection point for camsv3
 
-    required:
-      - port@0
-      - port@1
-      - port@2
-      - port@3
-      - port@4
-      - port@5
-      - port@6
-      - port@7
-      - port@8
-      - port@9
-
 required:
   - compatible
-  - interrupts
   - clocks
   - clock-names
   - power-domains
   - ports
+
+allOf:
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: mediatek,mt8365-seninf
+    then:
+      properties:
+        phys:
+          maxItems: 2
+        phy-names:
+          maxItems: 2
+        ports:
+          required:
+            - port@0
+            - port@1
+            - port@2
+            - port@3
+            - port@4
+            - port@5
+            - port@6
+            - port@7
+            - port@8
+            - port@9
+      required:
+        - interrupts
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: mediatek,mt6768-seninf
+    then:
+      properties:
+        ports:
+          properties:
+            port@4:
+              description: connection point for camsv0
+            port@5:
+              description: connection point for camsv1
+            port@6:
+              description: connection point for camsv2
+            port@7:
+              description: connection point for camsv3
+            port@8: false
+            port@9: false
+          required:
+            - port@0
+            - port@1
+            - port@4
+            - port@5
 
 additionalProperties: false
 
