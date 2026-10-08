@@ -473,6 +473,18 @@ static void mtk_seninf_csi2_setup_phy(struct mtk_seninf *priv)
 		mtk_seninf_update(priv, SENINF_TOP_PHY_SENINF_CTL_CSI1,
 				  PHY_SENINF_LANE_MUX_CSI1_EN, 1);
 	}
+
+	/* CSI2, same layout as CSI1 */
+	if (priv->inputs[CSI_PORT_2].phy) {
+		const struct mtk_seninf_input *input = &priv->inputs[CSI_PORT_2];
+
+		mtk_seninf_update(priv, SENINF_TOP_PHY_SENINF_CTL_CSI2,
+				  DPHY_MODE, 0 /* 4D1C */);
+		mtk_seninf_update(priv, SENINF_TOP_PHY_SENINF_CTL_CSI2,
+				  CK_SEL_1, input->bus.clock_lane);
+		mtk_seninf_update(priv, SENINF_TOP_PHY_SENINF_CTL_CSI2,
+				  PHY_SENINF_LANE_MUX_CSI2_EN, 1);
+	}
 }
 
 static void mtk_seninf_input_setup_csi2_rx(struct mtk_seninf_input *input)
