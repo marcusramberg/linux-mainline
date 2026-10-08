@@ -4,6 +4,7 @@
  * Copyright (c) 2022 MediaTek Inc.
  */
 
+#include <linux/bitfield.h>
 #include <linux/bits.h>
 #include <linux/device.h>
 #include <linux/interrupt.h>
@@ -26,17 +27,27 @@
 
 #define MTK_CAMSV_AUTOSUSPEND_DELAY_MS 100
 
+#define CAMSV_IMGO_CON_VAL \
+	(FIELD_PREP_CONST(CAMSV_IMGO_SV_CON_MAX_BURST_LEN_MASK, 0x8) | \
+	 FIELD_PREP_CONST(CAMSV_IMGO_SV_CON_FIFO_SIZE_MASK, 0x80))
+#define CAMSV_IMGO_CON2_VAL \
+	(FIELD_PREP_CONST(CAMSV_IMGO_SV_CON2_FIFO_PREP_PRI_THRL_MASK, 0x2) | \
+	 CAMSV_IMGO_SV_CON2_FIFO_PREP_PRI_THRH_MASK)
+
 static const struct mtk_cam_conf camsv_conf = {
 	.tg_sen_mode = CAMSV_TG_SEN_MODE_DBL_DATA_BUS_EN,
 	.module_en = CAMSV_MODULE_EN_DB_EN | CAMSV_MODULE_EN_TG_EN,
-	.imgo_con = ((0x8  << CAMSV_IMGO_SV_CON_MAX_BURST_LEN_SHIFT) &
-		CAMSV_IMGO_SV_CON_MAX_BURST_LEN_MASK) |
-		((0x80 << CAMSV_IMGO_SV_CON_FIFO_SIZE_SHIFT) &
-		CAMSV_IMGO_SV_CON_FIFO_SIZE_MASK),
-	.imgo_con2 = ((0x2 << CAMSV_IMGO_SV_CON2_FIFO_PREP_PRI_THRL_SHIFT) &
-		CAMSV_IMGO_SV_CON2_FIFO_PREP_PRI_THRL_MASK) |
-		((0x2 << CAMSV_IMGO_SV_CON2_FIFO_PREP_PRI_THRH_SHIFT) |
-		CAMSV_IMGO_SV_CON2_FIFO_PREP_PRI_THRH_MASK),
+	.imgo_con = CAMSV_IMGO_CON_VAL,
+	.imgo_con2 = CAMSV_IMGO_CON2_VAL,
+};
+
+/* one pixel per clock, IMGO FIFO thresholds as stock */
+static const struct mtk_cam_conf camsv4_conf = {
+	.module_en = CAMSV_MODULE_EN_DB_EN | CAMSV_MODULE_EN_TG_EN,
+	.imgo_con = CAMSV_IMGO_CON_VAL,
+	.imgo_con2 = 0x0004f004,
+	.imgo_con3 = 0x0002f002,
+	.isp4 = true,
 };
 
 static u32 mtk_camsv_read(struct mtk_cam_dev *priv, u32 reg)
@@ -51,6 +62,9 @@ static void mtk_camsv_write(struct mtk_cam_dev *priv, u32 reg, u32 value)
 
 static void mtk_camsv_img0_write(struct mtk_cam_dev *priv, u32 reg, u32 value)
 {
+	if (priv->conf->isp4 && reg != CAMSV_IMGO_SV_BASE_ADDR)
+		reg += CAMSV4_IMGO_SIZE_SHIFT;
+
 	writel(value, priv->regs_img0 + reg);
 }
 
@@ -76,9 +90,11 @@ void mtk_camsv_cmos_vf_hw_enable(struct mtk_cam_dev *cam_dev)
 	u32 clk_en = CAMSV_TG_DP_CLK_EN | CAMSV_DMA_DP_CLK_EN |
 		     CAMSV_PAK_DP_CLK_EN;
 
-	fbc_val = mtk_camsv_read(cam_dev, CAMSV_IMGO_FBC);
-	fbc_val |= CAMSV_IMGO_FBC_EN;
-	mtk_camsv_write(cam_dev, CAMSV_IMGO_FBC, fbc_val);
+	if (!cam_dev->conf->isp4) {
+		fbc_val = mtk_camsv_read(cam_dev, CAMSV_IMGO_FBC);
+		fbc_val |= CAMSV_IMGO_FBC_EN;
+		mtk_camsv_write(cam_dev, CAMSV_IMGO_FBC, fbc_val);
+	}
 
 	mtk_camsv_write(cam_dev,  CAMSV_CLK_EN, clk_en);
 	mtk_camsv_tg_write(cam_dev, CAMSV_TG_SEN_MODE,
@@ -99,6 +115,8 @@ void mtk_camsv_cmos_vf_hw_disable(struct mtk_cam_dev *cam_dev)
 	mtk_camsv_tg_write(cam_dev, CAMSV_TG_VF_CON,
 			     mtk_camsv_tg_read(cam_dev, CAMSV_TG_VF_CON) &
 			     ~CAMSV_TG_VF_CON_VFDATA_EN);
+	if (cam_dev->conf->isp4)
+		return;
 	fbc_val = mtk_camsv_read(cam_dev, CAMSV_IMGO_FBC);
 	fbc_val &= ~CAMSV_IMGO_FBC_EN;
 	mtk_camsv_write(cam_dev, CAMSV_IMGO_FBC, fbc_val);
@@ -123,6 +141,9 @@ void mtk_camsv_fbc_init(struct mtk_cam_dev *cam_dev,
 {
 	unsigned int fbc_val;
 
+	if (cam_dev->conf->isp4)
+		return;
+
 	if (pm_runtime_resume_and_get(cam_dev->dev) < 0) {
 		dev_err(cam_dev->dev, "failed to get pm_runtime\n");
 		return;
@@ -142,6 +163,9 @@ void mtk_camsv_fbc_inc(struct mtk_cam_dev *cam_dev)
 {
 	unsigned int fbc_val;
 
+	if (cam_dev->conf->isp4)
+		return;
+
 	fbc_val = mtk_camsv_read(cam_dev, CAMSV_IMGO_FBC);
 	fbc_val |= CAMSV_IMGO_FBC_RCNT_INC;
 	mtk_camsv_write(cam_dev, CAMSV_IMGO_FBC, fbc_val);
@@ -157,6 +181,7 @@ void mtk_camsv_setup(struct mtk_cam_dev *cam_dev, unsigned int count,
 	struct mtk_cam_dev_buffer *buf;
 	unsigned long flags;
 	unsigned int i;
+	u32 pak, stride4;
 	u32 tmp;
 
 	for (i = 0; i < count; i++)
@@ -187,19 +212,39 @@ void mtk_camsv_setup(struct mtk_cam_dev *cam_dev, unsigned int count,
 
 	mtk_camsv_write(cam_dev, CAMSV_INT_EN, INT_ST_MASK_CAMSV);
 
+	/* header DMA is on out of reset and has no buffer */
+	if (conf->isp4)
+		writel(0, cam_dev->regs - CAMSV4_TOP_OFFSET +
+		       CAMSV4_FRAME_HEADER_EN);
+
 	mtk_camsv_write(cam_dev, CAMSV_MODULE_EN,
 			  conf->module_en | fmtinfo->module_en_pak);
 	mtk_camsv_write(cam_dev, CAMSV_FMT_SEL, fmtinfo->fmt_sel);
-	mtk_camsv_write(cam_dev, CAMSV_PAK, fmtinfo->pak);
+	pak = fmtinfo->pak;
+	stride4 = CAMSV4_IMGO_STRIDE_BUS_SIZE_EN |
+		  FIELD_PREP(CAMSV4_IMGO_STRIDE_BUS_SIZE, 3);
+	if (!(conf->tg_sen_mode & CAMSV_TG_SEN_MODE_DBL_DATA_BUS_EN)) {
+		pak &= ~CAMSV_PAK_PAK_DBL_MODE_2_PIXELS;
+		stride4 = CAMSV4_IMGO_STRIDE_BUS_SIZE_EN |
+			  FIELD_PREP(CAMSV4_IMGO_STRIDE_BUS_SIZE, 1);
+	}
+	/* ISP4.0 numbers the packer modes the other way round: RAW8 is 0 */
+	if (conf->isp4)
+		pak = (pak & ~CAMSV4_PAK_MODE) |
+		      (3 - (pak & CAMSV4_PAK_MODE));
+	mtk_camsv_write(cam_dev, CAMSV_PAK, pak);
 
 	mtk_camsv_img0_write(cam_dev, CAMSV_IMGO_SV_XSIZE, bpl - 1U);
 	mtk_camsv_img0_write(cam_dev, CAMSV_IMGO_SV_YSIZE, h - 1U);
 
 	mtk_camsv_img0_write(cam_dev, CAMSV_IMGO_SV_STRIDE,
-			       fmtinfo->imgo_stride | bpl);
+			       bpl | (conf->isp4 ? stride4 : fmtinfo->imgo_stride));
 
 	mtk_camsv_img0_write(cam_dev, CAMSV_IMGO_SV_CON, conf->imgo_con);
 	mtk_camsv_img0_write(cam_dev, CAMSV_IMGO_SV_CON2, conf->imgo_con2);
+	if (conf->imgo_con3)
+		mtk_camsv_img0_write(cam_dev, CAMSV_IMGO_SV_CON3,
+				     conf->imgo_con3);
 
 	/* Set buf addr */
 	spin_lock_irqsave(&cam_dev->buf_list_lock, flags);
@@ -241,6 +286,12 @@ static irqreturn_t isp_irq_camsv(int irq, void *data)
 		processed_buf = list_first_entry_or_null(&cam_dev->buf_list,
 							 struct mtk_cam_dev_buffer,
 							 list);
+		/*
+		 * Without FBC the DMA keeps writing to the last address: hold
+		 * on to the buffer until another one can replace it.
+		 */
+		if (cam_dev->conf->isp4 && list_is_singular(&cam_dev->buf_list))
+			processed_buf = NULL;
 		if (processed_buf)
 			list_del(&processed_buf->list);
 
@@ -297,6 +348,13 @@ static int mtk_camsv_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, PTR_ERR(cam_dev->regs),
 				     "failed to map register base\n");
 
+	if (cam_dev->conf->isp4) {
+		cam_dev->regs_img0 = cam_dev->regs + CAMSV4_IMGO_OFFSET;
+		cam_dev->regs_tg = cam_dev->regs + CAMSV4_TG_OFFSET;
+		cam_dev->regs += CAMSV4_TOP_OFFSET;
+		goto clocks;
+	}
+
 	cam_dev->regs_img0 = devm_platform_ioremap_resource(pdev, 1);
 	if (IS_ERR(cam_dev->regs_img0))
 		return dev_err_probe(dev, PTR_ERR(cam_dev->regs_img0),
@@ -307,6 +365,7 @@ static int mtk_camsv_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, PTR_ERR(cam_dev->regs_tg),
 				     "failed to map TG register base\n");
 
+clocks:
 	cam_dev->num_clks = ARRAY_SIZE(clk_names);
 	cam_dev->clks = devm_kcalloc(dev, cam_dev->num_clks,
 				     sizeof(*cam_dev->clks), GFP_KERNEL);
@@ -418,6 +477,7 @@ static const struct dev_pm_ops mtk_camsv_pm_ops = {
 #endif
 
 static const struct of_device_id mtk_camsv_of_ids[] = {
+	{ .compatible = "mediatek,mt6768-camsv", .data = &camsv4_conf },
 	{ .compatible = "mediatek,mt8365-camsv", .data = &camsv_conf },
 	{ /* sentinel */ }
 };
