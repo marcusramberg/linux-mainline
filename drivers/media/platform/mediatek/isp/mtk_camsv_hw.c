@@ -41,8 +41,9 @@ static const struct mtk_cam_conf camsv_conf = {
 	.imgo_con2 = CAMSV_IMGO_CON2_VAL,
 };
 
-/* one pixel per clock, IMGO FIFO thresholds as stock */
+/* IMGO FIFO thresholds as stock */
 static const struct mtk_cam_conf camsv4_conf = {
+	.tg_sen_mode = CAMSV_TG_SEN_MODE_DBL_DATA_BUS_EN,
 	.module_en = CAMSV_MODULE_EN_DB_EN | CAMSV_MODULE_EN_TG_EN,
 	.imgo_con = CAMSV_IMGO_CON_VAL,
 	.imgo_con2 = 0x0004f004,
