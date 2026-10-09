@@ -20,11 +20,13 @@
 
 #define IMX882_LANES			4
 #define IMX882_MCLK_FREQ		24000000
-#define IMX882_MBUS_CODE		MEDIA_BUS_FMT_SRGGB10_1X10
 #define IMX882_VTS_MAX			0xffff
 
 #define IMX882_REG_CHIP_ID		CCI_REG16(0x0016)
 #define IMX882_CHIP_ID			0x8202
+
+/* bit 0 mirror, bit 1 flip; the Bayer order follows */
+#define IMX882_REG_ORIENTATION		CCI_REG8(0x0101)
 
 #define IMX882_REG_MODE_SELECT		CCI_REG8(0x0100)
 #define IMX882_MODE_STANDBY		0x00
@@ -560,6 +562,8 @@ struct imx882 {
 	struct v4l2_ctrl *hblank;
 	struct v4l2_ctrl *vblank;
 	struct v4l2_ctrl *exposure;
+	struct v4l2_ctrl *hflip;
+	struct v4l2_ctrl *vflip;
 
 	const struct imx882_mode *mode;
 	unsigned long link_freq_bitmap;
@@ -616,6 +620,18 @@ static int imx882_power_off(struct device *dev)
 	return 0;
 }
 
+static u32 imx882_mbus_code(struct imx882 *sensor)
+{
+	static const u32 codes[] = {
+		MEDIA_BUS_FMT_SRGGB10_1X10,
+		MEDIA_BUS_FMT_SGRBG10_1X10,
+		MEDIA_BUS_FMT_SGBRG10_1X10,
+		MEDIA_BUS_FMT_SBGGR10_1X10,
+	};
+
+	return codes[sensor->vflip->val << 1 | sensor->hflip->val];
+}
+
 static int imx882_set_ctrl(struct v4l2_ctrl *ctrl)
 {
 	struct imx882 *sensor = container_of(ctrl->handler, struct imx882,
@@ -632,6 +648,14 @@ static int imx882_set_ctrl(struct v4l2_ctrl *ctrl)
 						   (s64)max));
 		if (ret)
 			return ret;
+	}
+
+	if (ctrl->id == V4L2_CID_HFLIP || ctrl->id == V4L2_CID_VFLIP) {
+		struct v4l2_subdev_state *state =
+			v4l2_subdev_get_locked_active_state(&sensor->sd);
+
+		v4l2_subdev_state_get_format(state, 0)->code =
+			imx882_mbus_code(sensor);
 	}
 
 	if (!pm_runtime_get_if_in_use(sensor->dev))
@@ -652,6 +676,11 @@ static int imx882_set_ctrl(struct v4l2_ctrl *ctrl)
 	case V4L2_CID_TEST_PATTERN:
 		cci_write(sensor->regmap, IMX882_REG_TEST_PATTERN, ctrl->val,
 			  &ret);
+		break;
+	case V4L2_CID_HFLIP:
+	case V4L2_CID_VFLIP:
+		cci_write(sensor->regmap, IMX882_REG_ORIENTATION,
+			  sensor->vflip->val << 1 | sensor->hflip->val, &ret);
 		break;
 	default:
 		ret = -EINVAL;
@@ -714,6 +743,15 @@ static int imx882_init_controls(struct imx882 *sensor)
 				     ARRAY_SIZE(imx882_test_pattern_menu) - 1,
 				     0, 0, imx882_test_pattern_menu);
 
+	sensor->hflip = v4l2_ctrl_new_std(hdl, &imx882_ctrl_ops, V4L2_CID_HFLIP,
+					  0, 1, 1, 0);
+	if (sensor->hflip)
+		sensor->hflip->flags |= V4L2_CTRL_FLAG_MODIFY_LAYOUT;
+	sensor->vflip = v4l2_ctrl_new_std(hdl, &imx882_ctrl_ops, V4L2_CID_VFLIP,
+					  0, 1, 1, 0);
+	if (sensor->vflip)
+		sensor->vflip->flags |= V4L2_CTRL_FLAG_MODIFY_LAYOUT;
+
 	ret = v4l2_fwnode_device_parse(sensor->dev, &props);
 	if (ret)
 		goto err_free;
@@ -741,7 +779,7 @@ static int imx882_enum_mbus_code(struct v4l2_subdev *sd,
 	if (code->index)
 		return -EINVAL;
 
-	code->code = IMX882_MBUS_CODE;
+	code->code = imx882_mbus_code(to_imx882(sd));
 
 	return 0;
 }
@@ -759,7 +797,7 @@ static int imx882_enum_frame_size(struct v4l2_subdev *sd,
 	struct imx882 *sensor = to_imx882(sd);
 	unsigned int i, n = 0;
 
-	if (fse->code != IMX882_MBUS_CODE)
+	if (fse->code != imx882_mbus_code(sensor))
 		return -EINVAL;
 
 	for (i = 0; i < ARRAY_SIZE(imx882_modes); i++) {
@@ -860,7 +898,7 @@ static int imx882_set_fmt(struct v4l2_subdev *sd,
 	fmt->format = (struct v4l2_mbus_framefmt) {
 		.width = mode->width,
 		.height = mode->height,
-		.code = IMX882_MBUS_CODE,
+		.code = imx882_mbus_code(sensor),
 		.field = V4L2_FIELD_NONE,
 		.colorspace = V4L2_COLORSPACE_RAW,
 		.ycbcr_enc = V4L2_YCBCR_ENC_601,
@@ -915,6 +953,9 @@ static int imx882_enable_streams(struct v4l2_subdev *sd,
 	if (ret)
 		goto err_put;
 
+	__v4l2_ctrl_grab(sensor->hflip, true);
+	__v4l2_ctrl_grab(sensor->vflip, true);
+
 	return 0;
 
 err_put:
@@ -931,6 +972,8 @@ static int imx882_disable_streams(struct v4l2_subdev *sd,
 
 	ret = cci_write(sensor->regmap, IMX882_REG_MODE_SELECT,
 			IMX882_MODE_STANDBY, NULL);
+	__v4l2_ctrl_grab(sensor->hflip, false);
+	__v4l2_ctrl_grab(sensor->vflip, false);
 	pm_runtime_put_autosuspend(sensor->dev);
 
 	return ret;
