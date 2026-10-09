@@ -55,6 +55,11 @@
 #define SC520CS_GAIN_MIN		1024
 #define SC520CS_GAIN_MAX		(1024 * 635 / 10)
 
+/* the sensor shifts its window by a pixel: the Bayer order stays BGGR */
+#define SC520CS_REG_ORIENTATION		CCI_REG8(0x3221)
+#define SC520CS_ORIENTATION_MIRROR	0x06
+#define SC520CS_ORIENTATION_FLIP	0x60
+
 #define SC520CS_REG_TEST_PATTERN	CCI_REG8(0x3337)
 #define SC520CS_REG_TEST_PATTERN_2	CCI_REG8(0x391d)
 
@@ -221,6 +226,8 @@ struct sc520cs {
 	struct v4l2_ctrl_handler ctrls;
 	struct v4l2_ctrl *vblank;
 	struct v4l2_ctrl *exposure;
+	struct v4l2_ctrl *hflip;
+	struct v4l2_ctrl *vflip;
 
 	struct clk *mclk;
 	struct gpio_desc *reset_gpio;
@@ -337,6 +344,13 @@ static int sc520cs_set_ctrl(struct v4l2_ctrl *ctrl)
 		cci_write(sensor->regmap, SC520CS_REG_TEST_PATTERN_2,
 			  ctrl->val ? 0x10 : 0x01, &ret);
 		break;
+	case V4L2_CID_HFLIP:
+	case V4L2_CID_VFLIP:
+		cci_write(sensor->regmap, SC520CS_REG_ORIENTATION,
+			  (sensor->hflip->val ? SC520CS_ORIENTATION_MIRROR : 0) |
+			  (sensor->vflip->val ? SC520CS_ORIENTATION_FLIP : 0),
+			  &ret);
+		break;
 	default:
 		ret = -EINVAL;
 		break;
@@ -395,6 +409,11 @@ static int sc520cs_init_controls(struct sc520cs *sensor)
 				     V4L2_CID_TEST_PATTERN,
 				     ARRAY_SIZE(sc520cs_test_pattern_menu) - 1,
 				     0, 0, sc520cs_test_pattern_menu);
+
+	sensor->hflip = v4l2_ctrl_new_std(hdl, &sc520cs_ctrl_ops, V4L2_CID_HFLIP,
+					  0, 1, 1, 0);
+	sensor->vflip = v4l2_ctrl_new_std(hdl, &sc520cs_ctrl_ops, V4L2_CID_VFLIP,
+					  0, 1, 1, 0);
 
 	ret = v4l2_fwnode_device_parse(sensor->dev, &props);
 	if (ret)

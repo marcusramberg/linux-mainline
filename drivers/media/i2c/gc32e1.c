@@ -22,7 +22,6 @@
 /* 322.56 Mpix/s of RAW10 on four lanes */
 #define GC32E1_LINK_FREQ		403200000
 #define GC32E1_MCLK_FREQ		24000000
-#define GC32E1_MBUS_CODE		MEDIA_BUS_FMT_SRGGB10_1X10
 
 /* 2x2 binned */
 #define GC32E1_WIDTH			3264
@@ -38,6 +37,9 @@
 #define GC32E1_REG_CHIP_ID_H		CCI_REG8(0x03f0)
 #define GC32E1_REG_CHIP_ID_L		CCI_REG8(0x03f1)
 #define GC32E1_CHIP_ID			0x32e1
+
+/* bit 0 mirror, bit 1 flip; the Bayer order follows */
+#define GC32E1_REG_ORIENTATION		CCI_REG8(0x0101)
 
 #define GC32E1_REG_MODE_SELECT		CCI_REG8(0x0100)
 #define GC32E1_MODE_STANDBY		0x00
@@ -605,6 +607,8 @@ struct gc32e1 {
 	struct v4l2_ctrl_handler ctrls;
 	struct v4l2_ctrl *vblank;
 	struct v4l2_ctrl *exposure;
+	struct v4l2_ctrl *hflip;
+	struct v4l2_ctrl *vflip;
 
 	struct clk *mclk;
 	struct gpio_desc *reset_gpio;
@@ -665,6 +669,18 @@ static void gc32e1_write16(struct gc32e1 *sensor, u16 reg, u16 val,
 	cci_write(sensor->regmap, CCI_REG8(reg + 1), val & 0xff, err);
 }
 
+static u32 gc32e1_mbus_code(struct gc32e1 *sensor)
+{
+	static const u32 codes[] = {
+		MEDIA_BUS_FMT_SRGGB10_1X10,
+		MEDIA_BUS_FMT_SGRBG10_1X10,
+		MEDIA_BUS_FMT_SGBRG10_1X10,
+		MEDIA_BUS_FMT_SBGGR10_1X10,
+	};
+
+	return codes[sensor->vflip->val << 1 | sensor->hflip->val];
+}
+
 static int gc32e1_set_ctrl(struct v4l2_ctrl *ctrl)
 {
 	struct gc32e1 *sensor = container_of(ctrl->handler, struct gc32e1,
@@ -680,6 +696,14 @@ static int gc32e1_set_ctrl(struct v4l2_ctrl *ctrl)
 						   (s64)max));
 		if (ret)
 			return ret;
+	}
+
+	if (ctrl->id == V4L2_CID_HFLIP || ctrl->id == V4L2_CID_VFLIP) {
+		struct v4l2_subdev_state *state =
+			v4l2_subdev_get_locked_active_state(&sensor->sd);
+
+		v4l2_subdev_state_get_format(state, 0)->code =
+			gc32e1_mbus_code(sensor);
 	}
 
 	if (!pm_runtime_get_if_in_use(sensor->dev))
@@ -702,6 +726,11 @@ static int gc32e1_set_ctrl(struct v4l2_ctrl *ctrl)
 			  GC32E1_TEST_PATTERN_COLOUR_BARS, &ret);
 		cci_write(sensor->regmap, GC32E1_REG_TEST_PATTERN_EN,
 			  ctrl->val ? 1 : 0, &ret);
+		break;
+	case V4L2_CID_HFLIP:
+	case V4L2_CID_VFLIP:
+		cci_write(sensor->regmap, GC32E1_REG_ORIENTATION,
+			  sensor->vflip->val << 1 | sensor->hflip->val, &ret);
 		break;
 	default:
 		ret = -EINVAL;
@@ -761,6 +790,15 @@ static int gc32e1_init_controls(struct gc32e1 *sensor)
 				     ARRAY_SIZE(gc32e1_test_pattern_menu) - 1,
 				     0, 0, gc32e1_test_pattern_menu);
 
+	sensor->hflip = v4l2_ctrl_new_std(hdl, &gc32e1_ctrl_ops, V4L2_CID_HFLIP,
+					  0, 1, 1, 0);
+	if (sensor->hflip)
+		sensor->hflip->flags |= V4L2_CTRL_FLAG_MODIFY_LAYOUT;
+	sensor->vflip = v4l2_ctrl_new_std(hdl, &gc32e1_ctrl_ops, V4L2_CID_VFLIP,
+					  0, 1, 1, 0);
+	if (sensor->vflip)
+		sensor->vflip->flags |= V4L2_CTRL_FLAG_MODIFY_LAYOUT;
+
 	ret = v4l2_fwnode_device_parse(sensor->dev, &props);
 	if (ret)
 		goto err_free;
@@ -788,7 +826,7 @@ static int gc32e1_enum_mbus_code(struct v4l2_subdev *sd,
 	if (code->index)
 		return -EINVAL;
 
-	code->code = GC32E1_MBUS_CODE;
+	code->code = gc32e1_mbus_code(to_gc32e1(sd));
 
 	return 0;
 }
@@ -797,7 +835,7 @@ static int gc32e1_enum_frame_size(struct v4l2_subdev *sd,
 				  struct v4l2_subdev_state *state,
 				  struct v4l2_subdev_frame_size_enum *fse)
 {
-	if (fse->index || fse->code != GC32E1_MBUS_CODE)
+	if (fse->index || fse->code != gc32e1_mbus_code(to_gc32e1(sd)))
 		return -EINVAL;
 
 	fse->min_width = GC32E1_WIDTH;
@@ -815,7 +853,7 @@ static int gc32e1_set_fmt(struct v4l2_subdev *sd,
 	fmt->format = (struct v4l2_mbus_framefmt) {
 		.width = GC32E1_WIDTH,
 		.height = GC32E1_HEIGHT,
-		.code = GC32E1_MBUS_CODE,
+		.code = gc32e1_mbus_code(to_gc32e1(sd)),
 		.field = V4L2_FIELD_NONE,
 		.colorspace = V4L2_COLORSPACE_RAW,
 		.ycbcr_enc = V4L2_YCBCR_ENC_601,
@@ -869,6 +907,9 @@ static int gc32e1_enable_streams(struct v4l2_subdev *sd,
 			GC32E1_MODE_STREAMING, NULL);
 	if (ret)
 		goto err_put;
+
+	__v4l2_ctrl_grab(sensor->hflip, true);
+	__v4l2_ctrl_grab(sensor->vflip, true);
 	fsleep(5000);
 
 	return 0;
@@ -887,6 +928,8 @@ static int gc32e1_disable_streams(struct v4l2_subdev *sd,
 
 	ret = cci_write(sensor->regmap, GC32E1_REG_MODE_SELECT,
 			GC32E1_MODE_STANDBY, NULL);
+	__v4l2_ctrl_grab(sensor->hflip, false);
+	__v4l2_ctrl_grab(sensor->vflip, false);
 	pm_runtime_put_autosuspend(sensor->dev);
 
 	return ret;
