@@ -843,6 +843,9 @@ static int mtk_cam_vidioc_try_fmt(struct file *file, void *fh,
 	pix_mp->num_planes = 1;
 
 	fmtinfo = mtk_cam_format_info_find(cam, 0, pix_mp->pixelformat, 0);
+	if (cam->conf->one_pixel_max_width && fmtinfo->bpp == 8)
+		pix_mp->width = min_t(u32, pix_mp->width,
+				      cam->conf->one_pixel_max_width);
 	calc_bpl_size_pix_mp(fmtinfo, pix_mp);
 
 	/* Constant format fields */

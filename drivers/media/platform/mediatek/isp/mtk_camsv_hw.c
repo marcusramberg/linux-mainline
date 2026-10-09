@@ -48,6 +48,7 @@ static const struct mtk_cam_conf camsv4_conf = {
 	.imgo_con = CAMSV_IMGO_CON_VAL,
 	.imgo_con2 = 0x0004f004,
 	.imgo_con3 = 0x0002f002,
+	.one_pixel_max_width = 3264,
 	.isp4 = true,
 };
 
@@ -182,13 +183,16 @@ void mtk_camsv_setup(struct mtk_cam_dev *cam_dev, unsigned int count,
 	struct mtk_cam_dev_buffer *buf;
 	unsigned long flags;
 	unsigned int i;
+	u32 sen_mode = conf->tg_sen_mode;
 	u32 pak, stride4;
 	u32 tmp;
 
 	for (i = 0; i < count; i++)
 		mtk_camsv_fbc_inc(cam_dev);
 
-	mtk_camsv_tg_write(cam_dev, CAMSV_TG_SEN_MODE, conf->tg_sen_mode);
+	if (w <= conf->one_pixel_max_width)
+		sen_mode &= ~CAMSV_TG_SEN_MODE_DBL_DATA_BUS_EN;
+	mtk_camsv_tg_write(cam_dev, CAMSV_TG_SEN_MODE, sen_mode);
 
 	mtk_camsv_tg_write(cam_dev, CAMSV_TG_SEN_GRAB_PXL,
 			     (w * fmtinfo->w_factor) << 16U);
@@ -222,7 +226,7 @@ void mtk_camsv_setup(struct mtk_cam_dev *cam_dev, unsigned int count,
 	pak = fmtinfo->pak;
 	stride4 = CAMSV4_IMGO_STRIDE_BUS_SIZE_EN |
 		  FIELD_PREP(CAMSV4_IMGO_STRIDE_BUS_SIZE, 3);
-	if (!(conf->tg_sen_mode & CAMSV_TG_SEN_MODE_DBL_DATA_BUS_EN)) {
+	if (!(sen_mode & CAMSV_TG_SEN_MODE_DBL_DATA_BUS_EN)) {
 		pak &= ~CAMSV_PAK_PAK_DBL_MODE_2_PIXELS;
 		stride4 = CAMSV4_IMGO_STRIDE_BUS_SIZE_EN |
 			  FIELD_PREP(CAMSV4_IMGO_STRIDE_BUS_SIZE, 1);
