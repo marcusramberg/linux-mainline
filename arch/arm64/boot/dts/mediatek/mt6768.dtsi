@@ -2025,6 +2025,8 @@
 			clocks = <&camsys CLK_CAM_SENINF>,
 				 <&topckgen CLK_TOP_SENINF_SEL>;
 			clock-names = "camsys", "top_mux";
+			assigned-clocks = <&topckgen CLK_TOP_SENINF_SEL>;
+			assigned-clock-parents = <&topckgen CLK_TOP_UNIVPLL1_D2>;
 			power-domains = <&spm MT6768_POWER_DOMAIN_CAM>;
 			phys = <&mipi_csi0 PHY_TYPE_DPHY>, <&mipi_csi1>, <&mipi_csi2>;
 			phy-names = "csi0", "csi1", "csi2";
