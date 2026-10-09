@@ -1571,6 +1571,7 @@ static irqreturn_t mtk_jpeg_enc_done(struct mtk_jpeg_dev *jpeg)
 	result_size = mtk_jpeg_enc_get_file_size(jpeg->reg_base,
 						 jpeg->variant->support_34bit);
 	vb2_set_plane_payload(&dst_buf->vb2_buf, 0, result_size);
+	v4l2_m2m_buf_copy_metadata(src_buf, dst_buf);
 
 	buf_state = VB2_BUF_STATE_DONE;
 
