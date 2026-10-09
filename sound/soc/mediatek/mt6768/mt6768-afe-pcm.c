@@ -21,20 +21,21 @@
 #include "../common/mtk-afe-platform-driver.h"
 #include "../common/mtk-afe-fe-dai.h"
 
+/* memif/irq fs field; 3 and 7 are 384k and 352k, unused here */
 enum {
 	MTK_AFE_RATE_8K = 0,
-	MTK_AFE_RATE_11K,
-	MTK_AFE_RATE_12K,
-	MTK_AFE_RATE_16K,
-	MTK_AFE_RATE_22K,
-	MTK_AFE_RATE_24K,
-	MTK_AFE_RATE_32K,
-	MTK_AFE_RATE_44K,
-	MTK_AFE_RATE_48K,
-	MTK_AFE_RATE_88K,
-	MTK_AFE_RATE_96K,
-	MTK_AFE_RATE_176K,
-	MTK_AFE_RATE_192K,
+	MTK_AFE_RATE_11K = 1,
+	MTK_AFE_RATE_12K = 2,
+	MTK_AFE_RATE_16K = 4,
+	MTK_AFE_RATE_22K = 5,
+	MTK_AFE_RATE_24K = 6,
+	MTK_AFE_RATE_32K = 8,
+	MTK_AFE_RATE_44K = 9,
+	MTK_AFE_RATE_48K = 10,
+	MTK_AFE_RATE_88K = 11,
+	MTK_AFE_RATE_96K = 12,
+	MTK_AFE_RATE_176K = 13,
+	MTK_AFE_RATE_192K = 14,
 };
 
 unsigned int mt6768_general_rate_transform(struct device *dev,
