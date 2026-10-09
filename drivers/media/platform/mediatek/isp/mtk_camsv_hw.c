@@ -174,10 +174,10 @@ void mtk_camsv_fbc_inc(struct mtk_cam_dev *cam_dev)
 }
 
 void mtk_camsv_setup(struct mtk_cam_dev *cam_dev, unsigned int count,
-		     u32 w, u32 h, u32 bpl, u32 mbus_fmt)
+		     u32 w, u32 h, u32 bpl,
+		     const struct mtk_cam_format_info *fmtinfo)
 {
 	const struct mtk_cam_conf *conf = cam_dev->conf;
-	const struct mtk_cam_format_info *fmtinfo;
 	struct mtk_cam_dev_buffer *buf;
 	unsigned long flags;
 	unsigned int i;
@@ -186,8 +186,6 @@ void mtk_camsv_setup(struct mtk_cam_dev *cam_dev, unsigned int count,
 
 	for (i = 0; i < count; i++)
 		mtk_camsv_fbc_inc(cam_dev);
-
-	fmtinfo = mtk_cam_format_info_by_code(mbus_fmt);
 
 	mtk_camsv_tg_write(cam_dev, CAMSV_TG_SEN_MODE, conf->tg_sen_mode);
 

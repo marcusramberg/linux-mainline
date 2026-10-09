@@ -8,7 +8,8 @@
 #define __MTK_CAMSV_HW_H__
 
 void mtk_camsv_setup(struct mtk_cam_dev *cam_dev, unsigned int cont,
-		     u32 width, u32 height, u32 bpl, u32 mbus_fmt);
+		     u32 width, u32 height, u32 bpl,
+		     const struct mtk_cam_format_info *fmtinfo);
 void mtk_camsv_update_buffers_add(struct mtk_cam_dev *cam_dev,
 				  struct mtk_cam_dev_buffer *buf);
 void mtk_camsv_cmos_vf_hw_enable(struct mtk_cam_dev *cam_dev);

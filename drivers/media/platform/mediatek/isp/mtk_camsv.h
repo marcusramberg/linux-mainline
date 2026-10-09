@@ -39,9 +39,9 @@ struct mtk_cam_format_info {
 	u32 fmt_sel;
 	u32 pak;
 	u32 imgo_stride;
+	/* 3 or 4: only on that ISP generation */
+	u8 isp;
 };
-
-const struct mtk_cam_format_info *mtk_cam_format_info_by_code(u32 code);
 
 
 struct mtk_cam_dev_buffer {

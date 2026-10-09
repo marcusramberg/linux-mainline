@@ -39,6 +39,21 @@ to_mtk_cam_dev_buffer(struct vb2_buffer *buf)
  * Format Information
  */
 
+/*
+ * ISP4.0 from a RAW10 bus: the packer's RAW8 mode keeps the top 8 bits, and
+ * PAK_SEL bypasses it to write the 14-bit internal pixel (RAW10 << 4).
+ */
+#define MTK_CAM_FMT_ISP4_RAW10(_order, _bits, _en, _pak) {		\
+	.code = MEDIA_BUS_FMT_ ## _order ## 10_1X10,			\
+	.fourcc = V4L2_PIX_FMT_ ## _order ## _bits,			\
+	.bpp = ALIGN(_bits, 8),						\
+	.w_factor = 1,							\
+	.module_en_pak = _en,						\
+	.pak = CAMSV_PAK_PAK_MODE_ ## _pak,				\
+	.fmt_sel = CAMSV_FMT_SEL_TG1_FMT_RAW_10,			\
+	.isp = 4,							\
+}
+
 static const struct mtk_cam_format_info mtk_cam_format_info[] = {
 	{
 		.fourcc = V4L2_PIX_FMT_SBGGR8,
@@ -95,6 +110,7 @@ static const struct mtk_cam_format_info mtk_cam_format_info[] = {
 		.fmt_sel = CAMSV_FMT_SEL_TG1_FMT_RAW_10,
 		.imgo_stride = CAMSV_IMGO_SV_STRIDE_BUS_SIZE_EN
 			| CAMSV_IMGO_SV_STRIDE_BUS_SIZE_32,
+		.isp = 3,
 	}, {
 		.fourcc = V4L2_PIX_FMT_SGBRG10,
 		.code = MEDIA_BUS_FMT_SGBRG10_1X10,
@@ -106,6 +122,7 @@ static const struct mtk_cam_format_info mtk_cam_format_info[] = {
 		.fmt_sel = CAMSV_FMT_SEL_TG1_FMT_RAW_10,
 		.imgo_stride = CAMSV_IMGO_SV_STRIDE_BUS_SIZE_EN
 			| CAMSV_IMGO_SV_STRIDE_BUS_SIZE_32,
+		.isp = 3,
 	}, {
 		.fourcc = V4L2_PIX_FMT_SGRBG10,
 		.code = MEDIA_BUS_FMT_SGRBG10_1X10,
@@ -117,6 +134,7 @@ static const struct mtk_cam_format_info mtk_cam_format_info[] = {
 		.fmt_sel = CAMSV_FMT_SEL_TG1_FMT_RAW_10,
 		.imgo_stride = CAMSV_IMGO_SV_STRIDE_BUS_SIZE_EN
 			| CAMSV_IMGO_SV_STRIDE_BUS_SIZE_32,
+		.isp = 3,
 	}, {
 		.fourcc = V4L2_PIX_FMT_SRGGB10,
 		.code = MEDIA_BUS_FMT_SRGGB10_1X10,
@@ -128,6 +146,7 @@ static const struct mtk_cam_format_info mtk_cam_format_info[] = {
 		.fmt_sel = CAMSV_FMT_SEL_TG1_FMT_RAW_10,
 		.imgo_stride = CAMSV_IMGO_SV_STRIDE_BUS_SIZE_EN
 			| CAMSV_IMGO_SV_STRIDE_BUS_SIZE_32,
+		.isp = 3,
 	}, {
 		.fourcc = V4L2_PIX_FMT_SBGGR12,
 		.code = MEDIA_BUS_FMT_SBGGR12_1X12,
@@ -217,48 +236,47 @@ static const struct mtk_cam_format_info mtk_cam_format_info[] = {
 		.imgo_stride = CAMSV_IMGO_SV_STRIDE_BUS_SIZE_EN
 			| CAMSV_IMGO_SV_STRIDE_BUS_SIZE_16,
 	},
+	MTK_CAM_FMT_ISP4_RAW10(SBGGR, 8, CAMSV_MODULE_EN_PAK_EN, RAW_8),
+	MTK_CAM_FMT_ISP4_RAW10(SGBRG, 8, CAMSV_MODULE_EN_PAK_EN, RAW_8),
+	MTK_CAM_FMT_ISP4_RAW10(SGRBG, 8, CAMSV_MODULE_EN_PAK_EN, RAW_8),
+	MTK_CAM_FMT_ISP4_RAW10(SRGGB, 8, CAMSV_MODULE_EN_PAK_EN, RAW_8),
+	MTK_CAM_FMT_ISP4_RAW10(SBGGR, 14, CAMSV_MODULE_EN_PAK_SEL, RAW_10),
+	MTK_CAM_FMT_ISP4_RAW10(SGBRG, 14, CAMSV_MODULE_EN_PAK_SEL, RAW_10),
+	MTK_CAM_FMT_ISP4_RAW10(SGRBG, 14, CAMSV_MODULE_EN_PAK_SEL, RAW_10),
+	MTK_CAM_FMT_ISP4_RAW10(SRGGB, 14, CAMSV_MODULE_EN_PAK_SEL, RAW_10),
 };
 
+/* Zero code or fourcc matches any; index selects among the matches. */
 static const struct mtk_cam_format_info *
-mtk_cam_format_info_by_fourcc(u32 fourcc)
+mtk_cam_format_info_find(const struct mtk_cam_dev *cam, u32 code, u32 fourcc,
+			 unsigned int index)
 {
+	u8 isp = cam->conf->isp4 ? 4 : 3;
 	unsigned int i;
 
 	for (i = 0; i < ARRAY_SIZE(mtk_cam_format_info); ++i) {
 		const struct mtk_cam_format_info *info =
 			&mtk_cam_format_info[i];
 
-		if (info->fourcc == fourcc)
+		if ((info->isp && info->isp != isp) ||
+		    (code && info->code != code) ||
+		    (fourcc && info->fourcc != fourcc))
+			continue;
+		if (!index--)
 			return info;
 	}
 
 	return NULL;
 }
 
-const struct mtk_cam_format_info *
-mtk_cam_format_info_by_code(u32 code)
+static bool mtk_cam_dev_find_fmt(const struct mtk_cam_dev *cam, u32 format)
 {
-	unsigned int i;
-
-	for (i = 0; i < ARRAY_SIZE(mtk_cam_format_info); ++i) {
-		const struct mtk_cam_format_info *info =
-			&mtk_cam_format_info[i];
-
-		if (info->code == code)
-			return info;
-	}
-
-	return NULL;
-}
-
-static bool mtk_cam_dev_find_fmt(const struct mtk_cam_vdev_desc *desc,
-				 u32 format)
-{
+	const struct mtk_cam_vdev_desc *desc = cam->vdev.desc;
 	unsigned int i;
 
 	for (i = 0; i < desc->num_fmts; i++) {
 		if (desc->fmts[i] == format)
-			return true;
+			return mtk_cam_format_info_find(cam, 0, format, 0);
 	}
 
 	return false;
@@ -294,7 +312,7 @@ static void mtk_cam_dev_load_default_fmt(struct mtk_cam_dev *cam)
 	fmt->quantization = V4L2_QUANTIZATION_DEFAULT;
 	fmt->xfer_func = V4L2_XFER_FUNC_DEFAULT;
 
-	vdev->fmtinfo = mtk_cam_format_info_by_fourcc(fmt->pixelformat);
+	vdev->fmtinfo = mtk_cam_format_info_find(cam, 0, fmt->pixelformat, 0);
 
 	calc_bpl_size_pix_mp(vdev->fmtinfo, fmt);
 }
@@ -400,7 +418,20 @@ static int mtk_cam_vb2_start_streaming(struct vb2_queue *vq,
 		vb2_queue_to_mtk_cam_video_device(vq);
 	struct device *dev = cam->dev;
 	const struct v4l2_pix_format_mplane *fmt = &vdev->format;
+	const struct mtk_cam_format_info *fmtinfo;
+	struct v4l2_subdev_state *state;
+	u32 code;
 	int ret;
+
+	state = v4l2_subdev_lock_and_get_active_state(&cam->subdev);
+	code = v4l2_subdev_state_get_format(state, MTK_CAM_CIO_PAD_SENINF)->code;
+	v4l2_subdev_unlock_state(state);
+
+	fmtinfo = mtk_cam_format_info_find(cam, code, fmt->pixelformat, 0);
+	if (!fmtinfo) {
+		mtk_cam_vb2_return_all_buffers(cam, VB2_BUF_STATE_QUEUED);
+		return -EPIPE;
+	}
 
 	ret = pm_runtime_resume_and_get(dev);
 	if (ret) {
@@ -409,7 +440,7 @@ static int mtk_cam_vb2_start_streaming(struct vb2_queue *vq,
 	}
 
 	mtk_camsv_setup(cam, count, fmt->width, fmt->height,
-			fmt->plane_fmt[0].bytesperline, vdev->fmtinfo->code);
+			fmt->plane_fmt[0].bytesperline, fmtinfo);
 
 	/* Enable CMOS and VF */
 	mtk_camsv_cmos_vf_hw_enable(cam);
@@ -507,12 +538,19 @@ static int mtk_cam_enum_mbus_code(struct v4l2_subdev *sd,
 				  struct v4l2_subdev_state *sd_state,
 				  struct v4l2_subdev_mbus_code_enum *code)
 {
-	if (code->index >= ARRAY_SIZE(mtk_cam_format_info))
-		return -EINVAL;
+	unsigned int i, index = code->index;
 
-	code->code = mtk_cam_format_info[code->index].code;
+	/* the ISP4 rows repeat RAW10 codes */
+	for (i = 0; i < ARRAY_SIZE(mtk_cam_format_info); ++i) {
+		if (mtk_cam_format_info[i].isp == 4)
+			continue;
+		if (!index--) {
+			code->code = mtk_cam_format_info[i].code;
+			return 0;
+		}
+	}
 
-	return 0;
+	return -EINVAL;
 }
 
 static int mtk_cam_set_fmt(struct v4l2_subdev *sd,
@@ -723,37 +761,27 @@ static int mtk_cam_vidioc_querycap(struct file *file, void *fh,
 static int mtk_cam_vidioc_enum_fmt(struct file *file, void *fh,
 				   struct v4l2_fmtdesc *f)
 {
-	struct mtk_cam_video_device *vdev = file_to_mtk_cam_video_device(file);
+	struct mtk_cam_dev *cam = video_drvdata(file);
+	const struct mtk_cam_vdev_desc *desc = cam->vdev.desc;
 	const struct mtk_cam_format_info *fmtinfo;
-	unsigned int i;
+	unsigned int i, index = f->index;
 
-	/* If mbus_code is not set enumerate all supported formats. */
-	if (!f->mbus_code) {
-		if (f->index >= vdev->desc->num_fmts)
+	/* f->description is filled in v4l_fill_fmtdesc function */
+	f->flags = 0;
+
+	if (f->mbus_code) {
+		fmtinfo = mtk_cam_format_info_find(cam, f->mbus_code, 0, index);
+		if (!fmtinfo || !mtk_cam_dev_find_fmt(cam, fmtinfo->fourcc))
 			return -EINVAL;
-
-		/* f->description is filled in v4l_fill_fmtdesc function */
-		f->pixelformat = vdev->desc->fmts[f->index];
-		f->flags = 0;
-
+		f->pixelformat = fmtinfo->fourcc;
 		return 0;
 	}
 
-	/*
-	 * Otherwise only enumerate supported pixel formats corresponding to
-	 * that bus code.
-	 */
-	if (f->index)
-		return -EINVAL;
-
-	fmtinfo = mtk_cam_format_info_by_code(f->mbus_code);
-	if (!fmtinfo)
-		return -EINVAL;
-
-	for (i = 0; i < vdev->desc->num_fmts; ++i) {
-		if (vdev->desc->fmts[i] == fmtinfo->fourcc) {
-			f->pixelformat = fmtinfo->fourcc;
-			f->flags = 0;
+	for (i = 0; i < desc->num_fmts; ++i) {
+		if (!mtk_cam_dev_find_fmt(cam, desc->fmts[i]))
+			continue;
+		if (!index--) {
+			f->pixelformat = desc->fmts[i];
 			return 0;
 		}
 	}
@@ -775,11 +803,12 @@ static int mtk_cam_vidioc_try_fmt(struct file *file, void *fh,
 				  struct v4l2_format *f)
 {
 	struct mtk_cam_video_device *vdev = file_to_mtk_cam_video_device(file);
+	struct mtk_cam_dev *cam = video_drvdata(file);
 	struct v4l2_pix_format_mplane *pix_mp = &f->fmt.pix_mp;
 	const struct mtk_cam_format_info *fmtinfo;
 
 	/* Validate pixelformat */
-	if (!mtk_cam_dev_find_fmt(vdev->desc, pix_mp->pixelformat))
+	if (!mtk_cam_dev_find_fmt(cam, pix_mp->pixelformat))
 		pix_mp->pixelformat = vdev->desc->fmts[0];
 
 	pix_mp->width = clamp_val(pix_mp->width, IMG_MIN_WIDTH, IMG_MAX_WIDTH);
@@ -788,7 +817,7 @@ static int mtk_cam_vidioc_try_fmt(struct file *file, void *fh,
 
 	pix_mp->num_planes = 1;
 
-	fmtinfo = mtk_cam_format_info_by_fourcc(pix_mp->pixelformat);
+	fmtinfo = mtk_cam_format_info_find(cam, 0, pix_mp->pixelformat, 0);
 	calc_bpl_size_pix_mp(fmtinfo, pix_mp);
 
 	/* Constant format fields */
@@ -816,8 +845,8 @@ static int mtk_cam_vidioc_s_fmt(struct file *file, void *fh,
 
 	/* Configure to video device */
 	vdev->format = f->fmt.pix_mp;
-	vdev->fmtinfo =
-		mtk_cam_format_info_by_fourcc(f->fmt.pix_mp.pixelformat);
+	vdev->fmtinfo = mtk_cam_format_info_find(video_drvdata(file), 0,
+						 f->fmt.pix_mp.pixelformat, 0);
 
 	return 0;
 }
@@ -830,7 +859,7 @@ static int mtk_cam_vidioc_enum_framesizes(struct file *file, void *priv,
 	if (sizes->index)
 		return -EINVAL;
 
-	if (!mtk_cam_dev_find_fmt(vdev->desc, sizes->pixel_format))
+	if (!mtk_cam_dev_find_fmt(video_drvdata(file), sizes->pixel_format))
 		return -EINVAL;
 
 	sizes->type = vdev->desc->frmsizes->type;
@@ -885,6 +914,10 @@ static const u32 stream_out_fmts[] = {
 	V4L2_PIX_FMT_SGBRG10,
 	V4L2_PIX_FMT_SGRBG10,
 	V4L2_PIX_FMT_SRGGB10,
+	V4L2_PIX_FMT_SBGGR14,
+	V4L2_PIX_FMT_SGBRG14,
+	V4L2_PIX_FMT_SGRBG14,
+	V4L2_PIX_FMT_SRGGB14,
 	V4L2_PIX_FMT_UYVY,
 	V4L2_PIX_FMT_VYUY,
 	V4L2_PIX_FMT_YUYV,
