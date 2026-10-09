@@ -413,9 +413,6 @@ static void mtk_camsv_remove(struct platform_device *pdev)
 	struct mtk_cam_dev *cam_dev = dev_get_drvdata(dev);
 
 	mtk_cam_dev_cleanup(cam_dev);
-	pm_runtime_dont_use_autosuspend(cam_dev->dev);
-	pm_runtime_disable(cam_dev->dev);
-
 }
 
 #ifdef CONFIG_PM
