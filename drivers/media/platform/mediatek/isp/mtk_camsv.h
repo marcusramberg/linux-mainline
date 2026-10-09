@@ -143,6 +143,9 @@ struct mtk_cam_dev {
  * @imgo_con: dma control register
  * @imgo_con2: dma control register 2
  * @imgo_con3: dma control register 3, if non-zero
+ * @one_pixel_max_width: widest line that runs at one pixel per clock (the
+ *			  double data bus drops every other RAW8 pixel pair);
+ *			  must match SENINF's
  * @isp4: ISP4.0 layout: one register block per instance, IMGO size registers
  *	  8 bytes further from the base address, and no ISP3.0 style FBC
  */
@@ -152,6 +155,7 @@ struct mtk_cam_conf {
 	u32 imgo_con;
 	u32 imgo_con2;
 	u32 imgo_con3;
+	u16 one_pixel_max_width;
 	bool isp4;
 };
 
