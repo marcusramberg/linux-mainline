@@ -403,6 +403,13 @@ void mtk_cam_vb2_return_all_buffers(struct mtk_cam_dev *cam,
 	unsigned long flags;
 
 	spin_lock_irqsave(&cam->buf_list_lock, flags);
+	/* ISP4.0 buffers owned by the DMA are off the list */
+	if (cam->dma_cur)
+		list_add_tail(&cam->dma_cur->list, &cam->buf_list);
+	if (cam->dma_next)
+		list_add_tail(&cam->dma_next->list, &cam->buf_list);
+	cam->dma_cur = NULL;
+	cam->dma_next = NULL;
 	list_for_each_entry_safe(buf, buf_prev, &cam->buf_list, list) {
 		buf->daddr = 0ULL;
 		list_del(&buf->list);
