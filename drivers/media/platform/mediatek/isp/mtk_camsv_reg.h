@@ -90,6 +90,7 @@
 /* IRQ BITS */
 #define CAMSV_IRQ_TG_ERR				BIT(4)
 #define CAMSV_IRQ_TG_GBERR				BIT(5)
+#define CAMSV_IRQ_SOF					BIT(7)
 #define CAMSV_IRQ_PASS1_DON				BIT(10)
 #define CAMSV_IRQ_IMGO_ERR				BIT(16)
 
