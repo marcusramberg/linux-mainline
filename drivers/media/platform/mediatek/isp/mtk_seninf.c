@@ -90,14 +90,12 @@ enum mtk_seninf_format_flag {
  * @nb_inputs: Number of SENINF inputs
  * @nb_muxes: Number of SENINF MUX (FIFO) instances
  * @nb_outputs: Number of outputs (to CAM and CAMSV instances)
- * @one_pixel: MUX outputs one pixel per clock instead of two
  */
 struct mtk_seninf_conf {
 	const char *model;
 	u8 nb_inputs;
 	u8 nb_muxes;
 	u8 nb_outputs;
-	bool one_pixel;
 };
 
 /**
@@ -659,7 +657,7 @@ static void mtk_seninf_mux_setup(struct mtk_seninf_mux *mux,
 			      SENINF_NORMAL_MODEL);
 
 	pix_sel_ext = 0;
-	pix_sel = !mux->seninf->conf->one_pixel;
+	pix_sel = 1;
 	mtk_seninf_mux_update(mux, SENINF_MUX_CTRL_EXT, SENINF_PIX_SEL_EXT,
 			      pix_sel_ext);
 	mtk_seninf_mux_update(mux, SENINF_MUX_CTRL, SENINF_PIX_SEL, pix_sel);
@@ -1458,7 +1456,6 @@ static const struct mtk_seninf_conf seninf_6768_conf = {
 	.nb_inputs = 4,
 	.nb_muxes = 6,
 	.nb_outputs = 4,
-	.one_pixel = true,
 };
 
 static const struct of_device_id mtk_seninf_of_match[] = {
