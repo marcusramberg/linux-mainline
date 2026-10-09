@@ -104,6 +104,10 @@ struct mtk_cam_video_device {
  * @sequence: Buffer sequence number.
  * @buf_list_lock: Protects the buffer list.
  * @buf_list: List head for the buffer list.
+ * @scratch: ISP4.0 DMA target while no buffer is queued.
+ * @scratch_daddr: DMA address of @scratch.
+ * @scratch_size: Size of @scratch.
+ * @dma_to_scratch: The current frame goes to @scratch.
  */
 struct mtk_cam_dev {
 	struct device *dev;
@@ -125,6 +129,11 @@ struct mtk_cam_dev {
 
 	spinlock_t buf_list_lock;
 	struct list_head buf_list;
+
+	void *scratch;
+	dma_addr_t scratch_daddr;
+	size_t scratch_size;
+	bool dma_to_scratch;
 };
 
 /**

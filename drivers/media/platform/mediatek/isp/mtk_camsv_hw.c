@@ -251,6 +251,10 @@ void mtk_camsv_setup(struct mtk_cam_dev *cam_dev, unsigned int count,
 				       list);
 	if (buf)
 		mtk_camsv_update_buffers_add(cam_dev, buf);
+	else if (conf->isp4)
+		mtk_camsv_img0_write(cam_dev, CAMSV_IMGO_SV_BASE_ADDR,
+				     cam_dev->scratch_daddr);
+	cam_dev->dma_to_scratch = !buf;
 	spin_unlock_irqrestore(&cam_dev->buf_list_lock, flags);
 
 	/* CMOS_EN first */
@@ -284,11 +288,7 @@ static irqreturn_t isp_irq_camsv(int irq, void *data)
 		processed_buf = list_first_entry_or_null(&cam_dev->buf_list,
 							 struct mtk_cam_dev_buffer,
 							 list);
-		/*
-		 * Without FBC the DMA keeps writing to the last address: hold
-		 * on to the buffer until another one can replace it.
-		 */
-		if (cam_dev->conf->isp4 && list_is_singular(&cam_dev->buf_list))
+		if (cam_dev->dma_to_scratch)
 			processed_buf = NULL;
 		if (processed_buf)
 			list_del(&processed_buf->list);
@@ -296,6 +296,15 @@ static irqreturn_t isp_irq_camsv(int irq, void *data)
 		buf = list_first_entry_or_null(&cam_dev->buf_list,
 					       struct mtk_cam_dev_buffer,
 					       list);
+
+		/* Without FBC the DMA keeps writing to the last address */
+		if (cam_dev->conf->isp4) {
+			cam_dev->dma_to_scratch = !buf;
+			if (!buf)
+				mtk_camsv_img0_write(cam_dev,
+						     CAMSV_IMGO_SV_BASE_ADDR,
+						     cam_dev->scratch_daddr);
+		}
 
 		spin_unlock(&cam_dev->buf_list_lock);
 

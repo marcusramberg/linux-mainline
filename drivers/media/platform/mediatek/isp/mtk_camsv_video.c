@@ -386,7 +386,8 @@ static void mtk_cam_vb2_buf_queue(struct vb2_buffer *vb)
 
 	/* Add the buffer into the tracking list */
 	spin_lock_irqsave(&cam->buf_list_lock, flags);
-	if (vb2_start_streaming_called(vb->vb2_queue) && list_empty(&cam->buf_list))
+	if (!cam->conf->isp4 && vb2_start_streaming_called(vb->vb2_queue) &&
+	    list_empty(&cam->buf_list))
 		mtk_camsv_update_buffers_add(cam, buf);
 
 	list_add_tail(&buf->list, &cam->buf_list);
@@ -408,6 +409,16 @@ void mtk_cam_vb2_return_all_buffers(struct mtk_cam_dev *cam,
 		vb2_buffer_done(&buf->v4l2_buf.vb2_buf, state);
 	}
 	spin_unlock_irqrestore(&cam->buf_list_lock, flags);
+}
+
+static void mtk_cam_free_scratch(struct mtk_cam_dev *cam)
+{
+	if (!cam->scratch)
+		return;
+
+	dma_free_attrs(cam->dev, cam->scratch_size, cam->scratch,
+		       cam->scratch_daddr, DMA_ATTR_NO_KERNEL_MAPPING);
+	cam->scratch = NULL;
 }
 
 static int mtk_cam_vb2_start_streaming(struct vb2_queue *vq,
@@ -433,10 +444,21 @@ static int mtk_cam_vb2_start_streaming(struct vb2_queue *vq,
 		return -EPIPE;
 	}
 
+	if (cam->conf->isp4) {
+		cam->scratch_size = fmt->plane_fmt[0].sizeimage;
+		cam->scratch = dma_alloc_attrs(dev, cam->scratch_size,
+					       &cam->scratch_daddr, GFP_KERNEL,
+					       DMA_ATTR_NO_KERNEL_MAPPING);
+		if (!cam->scratch) {
+			mtk_cam_vb2_return_all_buffers(cam, VB2_BUF_STATE_QUEUED);
+			return -ENOMEM;
+		}
+	}
+
 	ret = pm_runtime_resume_and_get(dev);
 	if (ret) {
 		dev_err(dev, "failed to get pm_runtime\n");
-		return ret;
+		goto fail_free_scratch;
 	}
 
 	mtk_camsv_setup(cam, count, fmt->width, fmt->height,
@@ -463,10 +485,12 @@ static int mtk_cam_vb2_start_streaming(struct vb2_queue *vq,
 
 fail_no_stream:
 	video_device_pipeline_stop(&vdev->vdev);
-	mtk_cam_vb2_return_all_buffers(cam, VB2_BUF_STATE_QUEUED);
 fail_pm_put:
 	pm_runtime_mark_last_busy(cam->dev);
 	pm_runtime_put_autosuspend(cam->dev);
+fail_free_scratch:
+	mtk_cam_free_scratch(cam);
+	mtk_cam_vb2_return_all_buffers(cam, VB2_BUF_STATE_QUEUED);
 
 	return ret;
 }
@@ -485,6 +509,7 @@ static void mtk_cam_vb2_stop_streaming(struct vb2_queue *vq)
 				    BIT(0));
 
 	mtk_cam_vb2_return_all_buffers(cam, VB2_BUF_STATE_ERROR);
+	mtk_cam_free_scratch(cam);
 
 	video_device_pipeline_stop(&vdev->vdev);
 
