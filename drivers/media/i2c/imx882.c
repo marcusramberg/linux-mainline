@@ -19,21 +19,8 @@
 #include <media/v4l2-fwnode.h>
 
 #define IMX882_LANES			4
-#define IMX882_LINK_FREQ		500000000
 #define IMX882_MCLK_FREQ		24000000
 #define IMX882_MBUS_CODE		MEDIA_BUS_FMT_SRGGB10_1X10
-
-/* 4x4 binned */
-#define IMX882_WIDTH			2048
-#define IMX882_HEIGHT			1536
-/* 24 MHz / 3 * 260 * 8 / (5 * 4), checked against the frame counter */
-#define IMX882_PIXEL_RATE		832000000
-/* a longer line truncates the frame instead of stretching it */
-#define IMX882_HTS			2468
-/* readout limited: shorter frames still run at 60 fps */
-#define IMX882_VTS_MIN			5594
-/* 30 fps */
-#define IMX882_VTS_DEF			11188
 #define IMX882_VTS_MAX			0xffff
 
 #define IMX882_REG_CHIP_ID		CCI_REG16(0x0016)
@@ -411,8 +398,146 @@ static const struct cci_reg_sequence imx882_2048x1536_regs[] = {
 	{ CCI_REG8(0x30a3), 0x30 },
 };
 
+static const struct cci_reg_sequence imx882_4096x3072_regs[] = {
+	{ CCI_REG8(0x0112), 0x0a },
+	{ CCI_REG8(0x0113), 0x0a },
+	{ CCI_REG8(0x0114), 0x03 },
+	{ CCI_REG8(0x0342), 0x17 },
+	{ CCI_REG8(0x0343), 0x64 },
+	{ CCI_REG8(0x3850), 0x00 },
+	{ CCI_REG8(0x3851), 0xa8 },
+	{ CCI_REG8(0x0344), 0x00 },
+	{ CCI_REG8(0x0345), 0x00 },
+	{ CCI_REG8(0x0346), 0x00 },
+	{ CCI_REG8(0x0347), 0x00 },
+	{ CCI_REG8(0x0348), 0x1f },
+	{ CCI_REG8(0x0349), 0xff },
+	{ CCI_REG8(0x034a), 0x17 },
+	{ CCI_REG8(0x034b), 0xff },
+	{ CCI_REG8(0x0900), 0x01 },
+	{ CCI_REG8(0x0901), 0x22 },
+	{ CCI_REG8(0x0902), 0x00 },
+	/* 0x3005/0x3006/0x3103 as slim: stock adds PDAF lines MUX counts as image */
+	{ CCI_REG8(0x3005), 0x00 },
+	{ CCI_REG8(0x3006), 0x00 },
+	{ CCI_REG8(0x3140), 0x0a },
+	{ CCI_REG8(0x3144), 0x00 },
+	{ CCI_REG8(0x3148), 0x00 },
+	{ CCI_REG8(0x31c0), 0x41 },
+	{ CCI_REG8(0x31c1), 0x41 },
+	{ CCI_REG8(0x3205), 0x00 },
+	{ CCI_REG8(0x323c), 0x02 },
+	{ CCI_REG8(0x39ac), 0x01 },
+	{ CCI_REG8(0x0408), 0x00 },
+	{ CCI_REG8(0x0409), 0x00 },
+	{ CCI_REG8(0x040a), 0x00 },
+	{ CCI_REG8(0x040b), 0x00 },
+	{ CCI_REG8(0x040c), 0x10 },
+	{ CCI_REG8(0x040d), 0x00 },
+	{ CCI_REG8(0x040e), 0x0c },
+	{ CCI_REG8(0x040f), 0x00 },
+	{ CCI_REG8(0x034c), 0x10 },
+	{ CCI_REG8(0x034d), 0x00 },
+	{ CCI_REG8(0x034e), 0x0c },
+	{ CCI_REG8(0x034f), 0x00 },
+	{ CCI_REG8(0x0301), 0x05 },
+	{ CCI_REG8(0x0303), 0x02 },
+	{ CCI_REG8(0x0305), 0x03 },
+	{ CCI_REG8(0x0306), 0x01 },
+	{ CCI_REG8(0x0307), 0x0c },
+	{ CCI_REG8(0x030b), 0x01 },
+	{ CCI_REG8(0x030d), 0x0c },
+	{ CCI_REG8(0x030e), 0x03 },
+	{ CCI_REG8(0x030f), 0x6e },
+	{ CCI_REG8(0x3104), 0x00 },
+	{ CCI_REG8(0x38a0), 0x00 },
+	{ CCI_REG8(0x38a1), 0x00 },
+	{ CCI_REG8(0x38a2), 0x00 },
+	{ CCI_REG8(0x38a3), 0x00 },
+	{ CCI_REG8(0x38a8), 0x00 },
+	{ CCI_REG8(0x38a9), 0x00 },
+	{ CCI_REG8(0x38aa), 0x00 },
+	{ CCI_REG8(0x38ab), 0x00 },
+	{ CCI_REG8(0x38b0), 0x03 },
+	{ CCI_REG8(0x38b1), 0xff },
+	{ CCI_REG8(0x38b4), 0x03 },
+	{ CCI_REG8(0x38b5), 0xff },
+	{ CCI_REG8(0x38b8), 0x03 },
+	{ CCI_REG8(0x38b9), 0xff },
+	{ CCI_REG8(0x38bc), 0x03 },
+	{ CCI_REG8(0x38bd), 0xff },
+	{ CCI_REG8(0x38d0), 0x01 },
+	{ CCI_REG8(0x38d1), 0xc2 },
+	{ CCI_REG8(0x38d2), 0x01 },
+	{ CCI_REG8(0x38d3), 0xc2 },
+	{ CCI_REG8(0x38d8), 0x14 },
+	{ CCI_REG8(0x38e0), 0x00 },
+	{ CCI_REG8(0x38e1), 0x00 },
+	{ CCI_REG8(0x38e2), 0x00 },
+	{ CCI_REG8(0x38e3), 0x00 },
+	{ CCI_REG8(0x38e4), 0x00 },
+	{ CCI_REG8(0x38e5), 0x00 },
+	{ CCI_REG8(0x38e6), 0x00 },
+	{ CCI_REG8(0x38e7), 0x00 },
+	{ CCI_REG8(0x3b00), 0x00 },
+	{ CCI_REG8(0x3b01), 0x00 },
+	{ CCI_REG8(0x3b04), 0x00 },
+	{ CCI_REG8(0x3b05), 0x00 },
+	{ CCI_REG8(0x020e), 0x01 },
+	{ CCI_REG8(0x020f), 0x00 },
+	{ CCI_REG8(0x3310), 0x00 },
+	{ CCI_REG8(0x3103), 0x00 },
+	{ CCI_REG8(0x3422), 0x01 },
+	{ CCI_REG8(0x3423), 0xfc },
+	{ CCI_REG8(0x30a2), 0x00 },
+	{ CCI_REG8(0x30f1), 0x01 },
+	{ CCI_REG8(0x30a3), 0x30 },
+};
+
+/* 24 MHz / 12 * IOP_MPY / IOP_SYCK_DIV / 2 */
 static const s64 imx882_link_freq[] = {
-	IMX882_LINK_FREQ,
+	500000000,
+	878000000,
+};
+
+struct imx882_mode {
+	u32 width;
+	u32 height;
+	/* a longer line truncates the frame instead of stretching it */
+	u32 hts;
+	u32 vts_min;
+	u32 vts_def;
+	/* from the frame interval */
+	u64 pixel_rate;
+	unsigned int link_freq_index;
+	const struct cci_reg_sequence *regs;
+	unsigned int num_regs;
+};
+
+static const struct imx882_mode imx882_modes[] = {
+	{
+		/* 2x2 binned, stock capture */
+		.width = 4096,
+		.height = 3072,
+		.hts = 5988,
+		.vts_min = 4761,
+		.vts_def = 4761,
+		.pixel_rate = 857600000,
+		.link_freq_index = 1,
+		.regs = imx882_4096x3072_regs,
+		.num_regs = ARRAY_SIZE(imx882_4096x3072_regs),
+	}, {
+		/* 4x4 binned, stock slim video; readout limited below VTS 5594 */
+		.width = 2048,
+		.height = 1536,
+		.hts = 2468,
+		.vts_min = 5594,
+		.vts_def = 11188,
+		.pixel_rate = 832000000,
+		.link_freq_index = 0,
+		.regs = imx882_2048x1536_regs,
+		.num_regs = ARRAY_SIZE(imx882_2048x1536_regs),
+	},
 };
 
 static const char * const imx882_test_pattern_menu[] = {
@@ -430,8 +555,14 @@ struct imx882 {
 	struct v4l2_subdev sd;
 	struct media_pad pad;
 	struct v4l2_ctrl_handler ctrls;
+	struct v4l2_ctrl *pixel_rate;
+	struct v4l2_ctrl *link_freq;
+	struct v4l2_ctrl *hblank;
 	struct v4l2_ctrl *vblank;
 	struct v4l2_ctrl *exposure;
+
+	const struct imx882_mode *mode;
+	unsigned long link_freq_bitmap;
 
 	struct clk *mclk;
 	struct gpio_desc *reset_gpio;
@@ -492,7 +623,8 @@ static int imx882_set_ctrl(struct v4l2_ctrl *ctrl)
 	int ret = 0;
 
 	if (ctrl->id == V4L2_CID_VBLANK) {
-		int max = IMX882_HEIGHT + ctrl->val - IMX882_EXPOSURE_MARGIN;
+		int max = sensor->mode->height + ctrl->val -
+			  IMX882_EXPOSURE_MARGIN;
 
 		ret = __v4l2_ctrl_modify_range(sensor->exposure,
 					       IMX882_EXPOSURE_MIN, max, 1,
@@ -515,7 +647,7 @@ static int imx882_set_ctrl(struct v4l2_ctrl *ctrl)
 		break;
 	case V4L2_CID_VBLANK:
 		cci_write(sensor->regmap, IMX882_REG_VTS,
-			  IMX882_HEIGHT + ctrl->val, &ret);
+			  sensor->mode->height + ctrl->val, &ret);
 		break;
 	case V4L2_CID_TEST_PATTERN:
 		cci_write(sensor->regmap, IMX882_REG_TEST_PATTERN, ctrl->val,
@@ -539,37 +671,39 @@ static int imx882_init_controls(struct imx882 *sensor)
 {
 	struct v4l2_ctrl_handler *hdl = &sensor->ctrls;
 	struct v4l2_fwnode_device_properties props;
-	struct v4l2_ctrl *ctrl;
-	int vblank = IMX882_VTS_DEF - IMX882_HEIGHT;
+	const struct imx882_mode *mode = sensor->mode;
 	int ret;
 
 	v4l2_ctrl_handler_init(hdl, 10);
 
-	v4l2_ctrl_new_std(hdl, NULL, V4L2_CID_PIXEL_RATE, IMX882_PIXEL_RATE,
-			  IMX882_PIXEL_RATE, 1, IMX882_PIXEL_RATE);
+	sensor->pixel_rate = v4l2_ctrl_new_std(hdl, NULL, V4L2_CID_PIXEL_RATE,
+					       1, INT_MAX, 1, mode->pixel_rate);
 
-	ctrl = v4l2_ctrl_new_int_menu(hdl, NULL, V4L2_CID_LINK_FREQ, 0, 0,
-				      imx882_link_freq);
-	if (ctrl)
-		ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	sensor->link_freq = v4l2_ctrl_new_int_menu(hdl, NULL,
+						   V4L2_CID_LINK_FREQ,
+						   ARRAY_SIZE(imx882_link_freq) - 1,
+						   mode->link_freq_index,
+						   imx882_link_freq);
+	if (sensor->link_freq)
+		sensor->link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
-	ctrl = v4l2_ctrl_new_std(hdl, NULL, V4L2_CID_HBLANK,
-				 IMX882_HTS - IMX882_WIDTH,
-				 IMX882_HTS - IMX882_WIDTH, 1,
-				 IMX882_HTS - IMX882_WIDTH);
-	if (ctrl)
-		ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	sensor->hblank = v4l2_ctrl_new_std(hdl, NULL, V4L2_CID_HBLANK,
+					   mode->hts - mode->width,
+					   mode->hts - mode->width, 1,
+					   mode->hts - mode->width);
+	if (sensor->hblank)
+		sensor->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
 	sensor->vblank = v4l2_ctrl_new_std(hdl, &imx882_ctrl_ops,
 					   V4L2_CID_VBLANK,
-					   IMX882_VTS_MIN - IMX882_HEIGHT,
-					   IMX882_VTS_MAX - IMX882_HEIGHT, 1,
-					   vblank);
+					   mode->vts_min - mode->height,
+					   IMX882_VTS_MAX - mode->height, 1,
+					   mode->vts_def - mode->height);
 
 	sensor->exposure = v4l2_ctrl_new_std(hdl, &imx882_ctrl_ops,
 					     V4L2_CID_EXPOSURE,
 					     IMX882_EXPOSURE_MIN,
-					     IMX882_VTS_DEF - IMX882_EXPOSURE_MARGIN,
+					     mode->vts_def - IMX882_EXPOSURE_MARGIN,
 					     1, IMX882_EXPOSURE_DEF);
 
 	v4l2_ctrl_new_std(hdl, &imx882_ctrl_ops, V4L2_CID_ANALOGUE_GAIN,
@@ -612,28 +746,120 @@ static int imx882_enum_mbus_code(struct v4l2_subdev *sd,
 	return 0;
 }
 
+static bool imx882_mode_usable(struct imx882 *sensor,
+			       const struct imx882_mode *mode)
+{
+	return test_bit(mode->link_freq_index, &sensor->link_freq_bitmap);
+}
+
 static int imx882_enum_frame_size(struct v4l2_subdev *sd,
 				  struct v4l2_subdev_state *state,
 				  struct v4l2_subdev_frame_size_enum *fse)
 {
-	if (fse->index || fse->code != IMX882_MBUS_CODE)
+	struct imx882 *sensor = to_imx882(sd);
+	unsigned int i, n = 0;
+
+	if (fse->code != IMX882_MBUS_CODE)
 		return -EINVAL;
 
-	fse->min_width = IMX882_WIDTH;
-	fse->max_width = IMX882_WIDTH;
-	fse->min_height = IMX882_HEIGHT;
-	fse->max_height = IMX882_HEIGHT;
+	for (i = 0; i < ARRAY_SIZE(imx882_modes); i++) {
+		const struct imx882_mode *mode = &imx882_modes[i];
 
-	return 0;
+		if (!imx882_mode_usable(sensor, mode) || n++ != fse->index)
+			continue;
+
+		fse->min_width = mode->width;
+		fse->max_width = mode->width;
+		fse->min_height = mode->height;
+		fse->max_height = mode->height;
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
+static const struct imx882_mode *
+imx882_find_mode(struct imx882 *sensor, u32 width, u32 height)
+{
+	const struct imx882_mode *best = NULL;
+	u32 best_dist = U32_MAX;
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(imx882_modes); i++) {
+		const struct imx882_mode *mode = &imx882_modes[i];
+		u32 dist = abs((int)mode->width - (int)width) +
+			   abs((int)mode->height - (int)height);
+
+		if (imx882_mode_usable(sensor, mode) && dist < best_dist) {
+			best = mode;
+			best_dist = dist;
+		}
+	}
+
+	return best;
+}
+
+static int imx882_update_controls(struct imx882 *sensor,
+				  const struct imx882_mode *mode)
+{
+	int exp_max = mode->vts_def - IMX882_EXPOSURE_MARGIN;
+	int hblank = mode->hts - mode->width;
+	int ret;
+
+	ret = __v4l2_ctrl_s_ctrl_int64(sensor->pixel_rate, mode->pixel_rate);
+	if (!ret)
+		ret = __v4l2_ctrl_s_ctrl(sensor->link_freq,
+					 mode->link_freq_index);
+	if (!ret)
+		ret = __v4l2_ctrl_modify_range(sensor->hblank, hblank, hblank,
+					       1, hblank);
+	if (!ret)
+		ret = __v4l2_ctrl_modify_range(sensor->vblank,
+					       mode->vts_min - mode->height,
+					       IMX882_VTS_MAX - mode->height,
+					       1, mode->vts_def - mode->height);
+	if (!ret)
+		ret = __v4l2_ctrl_s_ctrl(sensor->vblank,
+					 mode->vts_def - mode->height);
+	/* s_ctrl does not run if the vblank value did not change */
+	if (!ret)
+		ret = __v4l2_ctrl_modify_range(sensor->exposure,
+					       IMX882_EXPOSURE_MIN, exp_max, 1,
+					       min(sensor->exposure->default_value,
+						   (s64)exp_max));
+
+	return ret;
 }
 
 static int imx882_set_fmt(struct v4l2_subdev *sd,
 			  struct v4l2_subdev_state *state,
 			  struct v4l2_subdev_format *fmt)
 {
+	struct imx882 *sensor = to_imx882(sd);
+	const struct imx882_mode *mode;
+	int ret;
+
+	mode = imx882_find_mode(sensor, fmt->format.width,
+				fmt->format.height);
+
+	if (fmt->which == V4L2_SUBDEV_FORMAT_ACTIVE && mode != sensor->mode) {
+		const struct imx882_mode *old = sensor->mode;
+
+		if (v4l2_subdev_is_streaming(sd))
+			return -EBUSY;
+
+		/* the vblank handler derives the exposure range from it */
+		sensor->mode = mode;
+		ret = imx882_update_controls(sensor, mode);
+		if (ret) {
+			sensor->mode = old;
+			return ret;
+		}
+	}
+
 	fmt->format = (struct v4l2_mbus_framefmt) {
-		.width = IMX882_WIDTH,
-		.height = IMX882_HEIGHT,
+		.width = mode->width,
+		.height = mode->height,
 		.code = IMX882_MBUS_CODE,
 		.field = V4L2_FIELD_NONE,
 		.colorspace = V4L2_COLORSPACE_RAW,
@@ -675,8 +901,8 @@ static int imx882_enable_streams(struct v4l2_subdev *sd,
 
 	cci_multi_reg_write(sensor->regmap, imx882_init_regs,
 			    ARRAY_SIZE(imx882_init_regs), &ret);
-	cci_multi_reg_write(sensor->regmap, imx882_2048x1536_regs,
-			    ARRAY_SIZE(imx882_2048x1536_regs), &ret);
+	cci_multi_reg_write(sensor->regmap, sensor->mode->regs,
+			    sensor->mode->num_regs, &ret);
 	if (ret)
 		goto err_put;
 
@@ -713,7 +939,12 @@ static int imx882_disable_streams(struct v4l2_subdev *sd,
 static int imx882_init_state(struct v4l2_subdev *sd,
 			     struct v4l2_subdev_state *state)
 {
-	struct v4l2_subdev_format fmt = { .which = V4L2_SUBDEV_FORMAT_TRY };
+	struct imx882 *sensor = to_imx882(sd);
+	struct v4l2_subdev_format fmt = {
+		.which = V4L2_SUBDEV_FORMAT_TRY,
+		.format.width = sensor->mode->width,
+		.format.height = sensor->mode->height,
+	};
 
 	return imx882_set_fmt(sd, state, &fmt);
 }
@@ -741,8 +972,9 @@ static const struct v4l2_subdev_internal_ops imx882_internal_ops = {
 	.init_state = imx882_init_state,
 };
 
-static int imx882_check_endpoint(struct device *dev)
+static int imx882_check_endpoint(struct imx882 *sensor)
 {
+	struct device *dev = sensor->dev;
 	struct v4l2_fwnode_endpoint bus_cfg = {
 		.bus_type = V4L2_MBUS_CSI2_DPHY,
 	};
@@ -767,7 +999,7 @@ static int imx882_check_endpoint(struct device *dev)
 					       bus_cfg.nr_of_link_frequencies,
 					       imx882_link_freq,
 					       ARRAY_SIZE(imx882_link_freq),
-					       &(unsigned long){ 0 });
+					       &sensor->link_freq_bitmap);
 
 	v4l2_fwnode_endpoint_free(&bus_cfg);
 	return ret;
@@ -785,9 +1017,10 @@ static int imx882_probe(struct i2c_client *client)
 		return -ENOMEM;
 	sensor->dev = dev;
 
-	ret = imx882_check_endpoint(dev);
+	ret = imx882_check_endpoint(sensor);
 	if (ret)
 		return ret;
+	sensor->mode = imx882_find_mode(sensor, 2048, 1536);
 
 	sensor->mclk = devm_v4l2_sensor_clk_get(dev, NULL);
 	if (IS_ERR(sensor->mclk))
