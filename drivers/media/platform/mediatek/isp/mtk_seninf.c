@@ -994,6 +994,10 @@ static int seninf_set_routing(struct v4l2_subdev *sd,
 			      enum v4l2_subdev_format_whence which,
 			      struct v4l2_subdev_krouting *routing)
 {
+	/* A new routing table would drop the enabled state of live streams */
+	if (which == V4L2_SUBDEV_FORMAT_ACTIVE && v4l2_subdev_is_streaming(sd))
+		return -EBUSY;
+
 	return __seninf_set_routing(sd, state, routing);
 }
 
