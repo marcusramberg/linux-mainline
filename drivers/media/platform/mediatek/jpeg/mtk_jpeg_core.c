@@ -790,6 +790,13 @@ static void mtk_jpeg_enc_buf_queue(struct vb2_buffer *vb)
 	v4l2_dbg(2, debug, &jpeg->v4l2_dev, "(%d) buf_q id=%d, vb=%p\n",
 		 vb->vb2_queue->type, vb->index, vb);
 
+	if (V4L2_TYPE_IS_CAPTURE(vb->vb2_queue->type) &&
+	    v4l2_m2m_dst_buf_is_last(ctx->fh.m2m_ctx)) {
+		v4l2_m2m_last_buffer_done(ctx->fh.m2m_ctx,
+					  to_vb2_v4l2_buffer(vb));
+		return;
+	}
+
 	v4l2_m2m_buf_queue(ctx->fh.m2m_ctx, to_vb2_v4l2_buffer(vb));
 }
 
@@ -841,6 +848,16 @@ static struct vb2_v4l2_buffer *mtk_jpeg_buf_remove(struct mtk_jpeg_ctx *ctx,
 		return v4l2_m2m_dst_buf_remove(ctx->fh.m2m_ctx);
 }
 
+static int mtk_jpeg_enc_start_streaming(struct vb2_queue *q,
+					unsigned int count)
+{
+	struct mtk_jpeg_ctx *ctx = vb2_get_drv_priv(q);
+
+	v4l2_m2m_update_start_streaming_state(ctx->fh.m2m_ctx, q);
+
+	return 0;
+}
+
 static void mtk_jpeg_enc_stop_streaming(struct vb2_queue *q)
 {
 	struct mtk_jpeg_ctx *ctx = vb2_get_drv_priv(q);
@@ -848,6 +865,8 @@ static void mtk_jpeg_enc_stop_streaming(struct vb2_queue *q)
 
 	while ((vb = mtk_jpeg_buf_remove(ctx, q->type)))
 		v4l2_m2m_buf_done(vb, VB2_BUF_STATE_ERROR);
+
+	v4l2_m2m_update_stop_streaming_state(ctx->fh.m2m_ctx, q);
 }
 
 static void mtk_jpeg_dec_stop_streaming(struct vb2_queue *q)
@@ -887,6 +906,7 @@ static const struct vb2_ops mtk_jpeg_enc_qops = {
 	.queue_setup        = mtk_jpeg_queue_setup,
 	.buf_prepare        = mtk_jpeg_buf_prepare,
 	.buf_queue          = mtk_jpeg_enc_buf_queue,
+	.start_streaming    = mtk_jpeg_enc_start_streaming,
 	.stop_streaming     = mtk_jpeg_enc_stop_streaming,
 };
 
@@ -927,6 +947,17 @@ static int mtk_jpeg_set_dec_dst(struct mtk_jpeg_ctx *ctx,
 	return 0;
 }
 
+static void mtk_jpeg_finish_drain(struct mtk_jpeg_ctx *ctx,
+				  struct vb2_v4l2_buffer *src_buf,
+				  struct vb2_v4l2_buffer *dst_buf)
+{
+	if (!v4l2_m2m_is_last_draining_src_buf(ctx->fh.m2m_ctx, src_buf))
+		return;
+
+	dst_buf->flags |= V4L2_BUF_FLAG_LAST;
+	v4l2_m2m_mark_stopped(ctx->fh.m2m_ctx);
+}
+
 static void mtk_jpeg_enc_device_run(void *priv)
 {
 	struct mtk_jpeg_ctx *ctx = priv;
@@ -964,6 +995,7 @@ static void mtk_jpeg_enc_device_run(void *priv)
 enc_end:
 	v4l2_m2m_src_buf_remove(ctx->fh.m2m_ctx);
 	v4l2_m2m_dst_buf_remove(ctx->fh.m2m_ctx);
+	mtk_jpeg_finish_drain(ctx, src_buf, dst_buf);
 	v4l2_m2m_buf_done(src_buf, buf_state);
 	v4l2_m2m_buf_done(dst_buf, buf_state);
 	v4l2_m2m_job_finish(jpeg->m2m_dev, ctx->fh.m2m_ctx);
@@ -1241,6 +1273,7 @@ static void mtk_jpeg_job_timeout_work(struct work_struct *work)
 
 	pm_runtime_put(jpeg->dev);
 
+	mtk_jpeg_finish_drain(ctx, src_buf, dst_buf);
 	v4l2_m2m_buf_done(src_buf, VB2_BUF_STATE_ERROR);
 	v4l2_m2m_buf_done(dst_buf, VB2_BUF_STATE_ERROR);
 	v4l2_m2m_job_finish(jpeg->m2m_dev, ctx->fh.m2m_ctx);
@@ -1572,6 +1605,7 @@ static irqreturn_t mtk_jpeg_enc_done(struct mtk_jpeg_dev *jpeg)
 						 jpeg->variant->support_34bit);
 	vb2_set_plane_payload(&dst_buf->vb2_buf, 0, result_size);
 	v4l2_m2m_buf_copy_metadata(src_buf, dst_buf);
+	mtk_jpeg_finish_drain(ctx, src_buf, dst_buf);
 
 	buf_state = VB2_BUF_STATE_DONE;
 
