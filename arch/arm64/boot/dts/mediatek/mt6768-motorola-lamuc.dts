@@ -374,7 +374,7 @@
 		dvdd-supply = <&cam_dvdd>;
 		avdd-supply = <&mt6358_vcama2_reg>;
 		orientation = <0>;
-		rotation = <270>;
+		rotation = <90>;
 
 		port {
 			gc32e1_ep: endpoint {
@@ -398,7 +398,7 @@
 		dvdd-supply = <&cam_dvdd>;
 		avdd-supply = <&mt6358_vcama2_reg>;
 		orientation = <1>;
-		rotation = <90>;
+		rotation = <270>;
 
 		port {
 			sc520cs_ep: endpoint {
