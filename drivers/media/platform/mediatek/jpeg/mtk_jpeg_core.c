@@ -268,6 +268,7 @@ static int mtk_jpeg_try_fmt_mplane(struct v4l2_pix_format_mplane *pix_mp,
 
 	if (fmt->fourcc == V4L2_PIX_FMT_JPEG) {
 		struct v4l2_plane_pix_format *pfmt = &pix_mp->plane_fmt[0];
+		u64 frame;
 
 		pix_mp->height = clamp(pix_mp->height, MTK_JPEG_MIN_HEIGHT,
 				       MTK_JPEG_MAX_HEIGHT);
@@ -276,9 +277,11 @@ static int mtk_jpeg_try_fmt_mplane(struct v4l2_pix_format_mplane *pix_mp,
 
 		pfmt->bytesperline = 0;
 		/* Source size must be aligned to 128 */
-		pfmt->sizeimage = round_up(pfmt->sizeimage, 128);
-		if (pfmt->sizeimage == 0)
-			pfmt->sizeimage = MTK_JPEG_DEFAULT_SIZEIMAGE;
+		frame = min_t(u64, (u64)pix_mp->width * pix_mp->height * 3 / 2,
+			      round_down(U32_MAX, 128));
+		pfmt->sizeimage = max3(round_up(pfmt->sizeimage, 128),
+				       MTK_JPEG_DEFAULT_SIZEIMAGE,
+				       (u32)round_up(frame, 128));
 		return 0;
 	}
 
@@ -1798,16 +1801,16 @@ static irqreturn_t mtk_jpeg_enc_irq(int irq, void *priv)
 	u32 irq_status;
 	irqreturn_t ret = IRQ_NONE;
 
-	cancel_delayed_work(&jpeg->job_timeout_work);
-
 	irq_status = readl(jpeg->reg_base + JPEG_ENC_INT_STS) &
 		     JPEG_ENC_INT_STATUS_MASK_ALLIRQ;
 	if (irq_status)
 		writel(0, jpeg->reg_base + JPEG_ENC_INT_STS);
 
+	/* a stall (output buffer full) never completes; leave it to the timeout */
 	if (!(irq_status & JPEG_ENC_INT_STATUS_DONE))
 		return ret;
 
+	cancel_delayed_work(&jpeg->job_timeout_work);
 	ret = mtk_jpeg_enc_done(jpeg);
 	return ret;
 }
