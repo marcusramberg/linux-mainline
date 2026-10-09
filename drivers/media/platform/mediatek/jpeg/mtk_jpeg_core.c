@@ -262,6 +262,10 @@ static int mtk_jpeg_try_fmt_mplane(struct v4l2_pix_format_mplane *pix_mp,
 	int i;
 
 	pix_mp->field = V4L2_FIELD_NONE;
+	pix_mp->colorspace = V4L2_COLORSPACE_SRGB;
+	pix_mp->ycbcr_enc = V4L2_YCBCR_ENC_601;
+	pix_mp->xfer_func = V4L2_XFER_FUNC_SRGB;
+	pix_mp->quantization = V4L2_QUANTIZATION_FULL_RANGE;
 
 	pix_mp->num_planes = fmt->colplanes;
 	pix_mp->pixelformat = fmt->fourcc;
