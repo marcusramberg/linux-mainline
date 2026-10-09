@@ -993,6 +993,8 @@ int mtk_cam_video_register(struct mtk_cam_dev *cam)
 	vbq->dev = dev;
 	vbq->ops = &mtk_cam_vb2_ops;
 	vbq->mem_ops = &vb2_dma_contig_memops;
+	/* The soft ISP reads frames with the CPU, uncached that is 30x slower */
+	vbq->allow_cache_hints = 1;
 	vbq->buf_struct_size = sizeof(struct mtk_cam_dev_buffer);
 	/*
 	 * TODO: The hardware supports SOF interrupts, switch to a SOF
