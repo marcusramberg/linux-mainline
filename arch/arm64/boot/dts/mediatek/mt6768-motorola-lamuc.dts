@@ -348,7 +348,7 @@
 			imx882_ep: endpoint {
 				remote-endpoint = <&seninf_csi0_ep>;
 				data-lanes = <1 2 3 4>;
-				link-frequencies = /bits/ 64 <500000000>;
+				link-frequencies = /bits/ 64 <500000000 878000000>;
 			};
 		};
 	};
