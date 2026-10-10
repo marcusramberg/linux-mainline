@@ -493,6 +493,7 @@ static int mtk_cam_vb2_start_streaming(struct vb2_queue *vq,
 fail_no_stream:
 	video_device_pipeline_stop(&vdev->vdev);
 fail_pm_put:
+	mtk_camsv_cmos_vf_hw_disable(cam);
 	pm_runtime_mark_last_busy(cam->dev);
 	pm_runtime_put_autosuspend(cam->dev);
 fail_free_scratch:
