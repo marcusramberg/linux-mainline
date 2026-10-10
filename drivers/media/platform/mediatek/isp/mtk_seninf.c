@@ -776,6 +776,12 @@ static int seninf_enable_streams(struct v4l2_subdev *sd,
 	input = &priv->inputs[sink_pad];
 	mux = &priv->muxes[pad - priv->conf->nb_inputs];
 
+	if (!input->source_sd) {
+		dev_dbg(priv->dev, "No source connected to sink pad %u\n",
+			sink_pad);
+		return -ENOLINK;
+	}
+
 	ret = pm_runtime_resume_and_get(priv->dev);
 	if (ret < 0) {
 		dev_err(priv->dev, "failed to get pm_runtime: %d\n", ret);
