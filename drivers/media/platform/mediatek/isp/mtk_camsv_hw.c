@@ -130,6 +130,9 @@ void mtk_camsv_cmos_vf_hw_disable(struct mtk_cam_dev *cam_dev)
 {
 	unsigned int fbc_val;
 
+	mtk_camsv_write(cam_dev, CAMSV_INT_EN, 0);
+	synchronize_irq(cam_dev->irq);
+
 	mtk_camsv_tg_write(cam_dev, CAMSV_TG_SEN_MODE,
 			     mtk_camsv_tg_read(cam_dev, CAMSV_TG_SEN_MODE) &
 			     ~CAMSV_TG_SEN_MODE_CMOS_EN);
@@ -438,14 +441,14 @@ clocks:
 		return dev_err_probe(dev, ret, "failed to get clocks: %i\n",
 				     ret);
 
+	spin_lock_init(&cam_dev->buf_list_lock);
+
 	cam_dev->irq = platform_get_irq(pdev, 0);
 	ret = devm_request_irq(dev, cam_dev->irq, isp_irq_camsv, 0,
 			       dev_name(dev), cam_dev);
 	if (ret)
 		return dev_err_probe(dev, ret, "failed to request irq=%d\n",
 				     cam_dev->irq);
-
-	spin_lock_init(&cam_dev->buf_list_lock);
 
 	/* initialise runtime power management */
 	pm_runtime_set_autosuspend_delay(dev, MTK_CAMSV_AUTOSUSPEND_DELAY_MS);
