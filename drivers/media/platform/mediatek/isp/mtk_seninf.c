@@ -766,6 +766,7 @@ static int seninf_enable_streams(struct v4l2_subdev *sd,
 	struct mtk_seninf *priv = sd_to_mtk_seninf(sd);
 	struct mtk_seninf_input *input;
 	struct mtk_seninf_mux *mux;
+	struct v4l2_mbus_framefmt *sink_fmt, *src_fmt;
 	struct v4l2_subdev *source;
 	u32 sink_pad;
 	int ret;
@@ -792,6 +793,13 @@ static int seninf_enable_streams(struct v4l2_subdev *sd,
 			sink_pad);
 		return -ENOLINK;
 	}
+
+	/* The SENINF can't scale, both ends of the route must agree */
+	sink_fmt = v4l2_subdev_state_get_format(state, sink_pad, 0);
+	src_fmt = v4l2_subdev_state_get_format(state, pad, 0);
+	if (sink_fmt->width != src_fmt->width ||
+	    sink_fmt->height != src_fmt->height)
+		return -EPIPE;
 
 	ret = pm_runtime_resume_and_get(priv->dev);
 	if (ret < 0) {

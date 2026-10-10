@@ -437,16 +437,20 @@ static int mtk_cam_vb2_start_streaming(struct vb2_queue *vq,
 	struct device *dev = cam->dev;
 	const struct v4l2_pix_format_mplane *fmt = &vdev->format;
 	const struct mtk_cam_format_info *fmtinfo;
+	const struct v4l2_mbus_framefmt *sink;
 	struct v4l2_subdev_state *state;
-	u32 code;
+	u32 code, width, height;
 	int ret;
 
 	state = v4l2_subdev_lock_and_get_active_state(&cam->subdev);
-	code = v4l2_subdev_state_get_format(state, MTK_CAM_CIO_PAD_SENINF)->code;
+	sink = v4l2_subdev_state_get_format(state, MTK_CAM_CIO_PAD_SENINF);
+	code = sink->code;
+	width = sink->width;
+	height = sink->height;
 	v4l2_subdev_unlock_state(state);
 
 	fmtinfo = mtk_cam_format_info_find(cam, code, fmt->pixelformat, 0);
-	if (!fmtinfo) {
+	if (!fmtinfo || fmt->width != width || fmt->height != height) {
 		mtk_cam_vb2_return_all_buffers(cam, VB2_BUF_STATE_QUEUED);
 		return -EPIPE;
 	}
