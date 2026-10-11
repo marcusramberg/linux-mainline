@@ -29,6 +29,10 @@
 #define MUSB_TXTOGEN		0x86
 #define MTK_TOGGLE_EN		GENMASK(15, 0)
 
+#define MTK_MUSB_SWRST		0x74
+#define SWRST_PHY_RST		BIT(7)
+#define SWRST_PHYSIG_GATE_HS	BIT(6)
+
 #define TX_INT_STATUS		BIT(0)
 #define RX_INT_STATUS		BIT(1)
 #define USBCOM_INT_STATUS	BIT(2)
@@ -257,6 +261,7 @@ static int mtk_musb_init(struct musb *musb)
 	struct device *dev = musb->controller;
 	struct mtk_glue *glue = dev_get_drvdata(dev->parent);
 	int ret;
+	u8 val;
 
 	glue->musb = musb;
 	musb->phy = glue->phy;
@@ -267,6 +272,12 @@ static int mtk_musb_init(struct musb *musb)
 	/* Set TX/RX toggle enable */
 	musb_writew(musb->mregs, MUSB_TXTOGEN, MTK_TOGGLE_EN);
 	musb_writew(musb->mregs, MUSB_RXTOGEN, MTK_TOGGLE_EN);
+
+	/* as the vendor driver does at probe (MTK CR ALPS01823375) */
+	val = musb_readb(musb->mregs, MTK_MUSB_SWRST);
+	val &= ~SWRST_PHYSIG_GATE_HS;
+	val |= SWRST_PHY_RST;
+	musb_writeb(musb->mregs, MTK_MUSB_SWRST, val);
 
 	ret = phy_init(glue->phy);
 	if (ret)
