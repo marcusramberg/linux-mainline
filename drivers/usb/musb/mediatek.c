@@ -268,19 +268,16 @@ static int mtk_musb_init(struct musb *musb)
 	musb_writew(musb->mregs, MUSB_TXTOGEN, MTK_TOGGLE_EN);
 	musb_writew(musb->mregs, MUSB_RXTOGEN, MTK_TOGGLE_EN);
 
-	if (musb->port_mode == MUSB_OTG) {
-		ret = mtk_otg_switch_init(glue);
-		if (ret)
-			return ret;
-	}
-
 	ret = phy_init(glue->phy);
 	if (ret)
-		goto err_phy_init;
+		return ret;
 
-	ret = phy_power_on(glue->phy);
-	if (ret)
-		goto err_phy_power_on;
+	/* in OTG mode the role switch powers the PHY on attach */
+	if (glue->role != USB_ROLE_NONE) {
+		ret = phy_power_on(glue->phy);
+		if (ret)
+			goto err_phy_power_on;
+	}
 
 	phy_set_mode(glue->phy, glue->phy_mode);
 
@@ -290,13 +287,19 @@ static int mtk_musb_init(struct musb *musb)
 #endif
 	musb_writel(musb->mregs, USB_L1INTM, TX_INT_STATUS | RX_INT_STATUS |
 		    USBCOM_INT_STATUS | DMA_INT_STATUS);
+
+	if (musb->port_mode == MUSB_OTG) {
+		ret = mtk_otg_switch_init(glue);
+		if (ret)
+			goto err_switch_init;
+	}
 	return 0;
 
+err_switch_init:
+	if (glue->role != USB_ROLE_NONE)
+		phy_power_off(glue->phy);
 err_phy_power_on:
 	phy_exit(glue->phy);
-err_phy_init:
-	if (musb->port_mode == MUSB_OTG)
-		mtk_otg_switch_exit(glue);
 	return ret;
 }
 
@@ -337,7 +340,8 @@ static int mtk_musb_exit(struct musb *musb)
 	struct mtk_glue *glue = dev_get_drvdata(dev->parent);
 
 	mtk_otg_switch_exit(glue);
-	phy_power_off(glue->phy);
+	if (glue->role != USB_ROLE_NONE)
+		phy_power_off(glue->phy);
 	phy_exit(glue->phy);
 	clk_bulk_disable_unprepare(MTK_MUSB_CLKS_NUM, glue->clks);
 
