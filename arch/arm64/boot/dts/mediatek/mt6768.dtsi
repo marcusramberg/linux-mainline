@@ -1059,7 +1059,7 @@
 			#reset-cells = <1>;
 		};
 
-		timer@10008000 {
+		apxgpt: timer@10008000 {
 			compatible = "mediatek,mt6768-timer",
 				     "mediatek,mt6577-timer";
 			reg = <0 0x10008000 0 0x1000>;
@@ -1084,7 +1084,7 @@
 			clock-names = "spi", "wrap";
 		};
 
-		timer@10017000 {
+		systimer: timer@10017000 {
 			compatible = "mediatek,mt6768-systimer",
 				     "mediatek,mt6765-timer";
 			reg = <0 0x10017000 0 0x1000>;
