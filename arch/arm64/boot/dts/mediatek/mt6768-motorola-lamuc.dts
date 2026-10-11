@@ -640,6 +640,14 @@
 	status = "okay";
 };
 
+/* stock u2port0 tuning; INTR_CAL stays the efuse autoload */
+&usb2port0 {
+	mediatek,discth = <7>;
+	mediatek,eye-vrt = <7>;
+	mediatek,eye-term = <3>;
+	mediatek,pre-emphasis = <3>;
+};
+
 &dsi0 {
 	#address-cells = <1>;
 	#size-cells = <0>;
