@@ -534,8 +534,9 @@ static const struct imx882_mode imx882_modes[] = {
 		.height = 1536,
 		.hts = 2468,
 		.vts_min = 5594,
-		.vts_def = 11188,
-		.pixel_rate = 832000000,
+		.vts_def = 5594,
+		/* from the frame interval: VTS 11188 gives 15.00 fps */
+		.pixel_rate = 414180000,
 		.link_freq_index = 0,
 		.regs = imx882_2048x1536_regs,
 		.num_regs = ARRAY_SIZE(imx882_2048x1536_regs),
