@@ -998,12 +998,15 @@ static void scpsys_remove_one_domain(struct scpsys_domain *pd)
 			"failed to remove domain '%s' : %d - state may be inconsistent\n",
 			pd->genpd.name, ret);
 
-	if (scpsys->soc_data->type == SCPSYS_MTCMOS_TYPE_HW_VOTER) {
-		if (scpsys_hwv_domain_is_enable_done(pd))
-			scpsys_hwv_power_off_internal(pd);
-	} else {
-		if (scpsys_domain_is_on(pd))
-			scpsys_power_off_internal(pd);
+	/* Powering these off on a deferred probe can take out DRAM or the bus */
+	if (!MTK_SCPD_CAPS(pd, MTK_SCPD_ALWAYS_ON)) {
+		if (scpsys->soc_data->type == SCPSYS_MTCMOS_TYPE_HW_VOTER) {
+			if (scpsys_hwv_domain_is_enable_done(pd))
+				scpsys_hwv_power_off_internal(pd);
+		} else {
+			if (scpsys_domain_is_on(pd))
+				scpsys_power_off_internal(pd);
+		}
 	}
 
 	clk_bulk_put(pd->num_clks, pd->clks);
