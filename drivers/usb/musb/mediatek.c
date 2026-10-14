@@ -412,6 +412,11 @@ static const struct platform_device_info mtk_dev_info = {
 	.dma_mask = DMA_BIT_MASK(32),
 };
 
+static void mtk_musb_unregister_usb_phy(void *data)
+{
+	usb_phy_generic_unregister(data);
+}
+
 static int mtk_musb_probe(struct platform_device *pdev)
 {
 	struct musb_hdrc_platform_data *pdata;
@@ -476,12 +481,16 @@ static int mtk_musb_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, PTR_ERR(glue->usb_phy),
 				"fail to registering usb-phy\n");
 
+	/* Must be released after devm_usb_get_phy()'s reference is put */
+	ret = devm_add_action_or_reset(dev, mtk_musb_unregister_usb_phy,
+				       glue->usb_phy);
+	if (ret)
+		return ret;
+
 	glue->xceiv = devm_usb_get_phy(dev, USB_PHY_TYPE_USB2);
-	if (IS_ERR(glue->xceiv)) {
-		ret = PTR_ERR(glue->xceiv);
-		dev_err(dev, "fail to getting usb-phy %d\n", ret);
-		goto err_unregister_usb_phy;
-	}
+	if (IS_ERR(glue->xceiv))
+		return dev_err_probe(dev, PTR_ERR(glue->xceiv),
+				     "fail to getting usb-phy\n");
 
 	platform_set_drvdata(pdev, glue);
 	pm_runtime_enable(dev);
@@ -514,18 +523,14 @@ err_device_register:
 err_enable_clk:
 	pm_runtime_put_sync(dev);
 	pm_runtime_disable(dev);
-err_unregister_usb_phy:
-	usb_phy_generic_unregister(glue->usb_phy);
 	return ret;
 }
 
 static void mtk_musb_remove(struct platform_device *pdev)
 {
 	struct mtk_glue *glue = platform_get_drvdata(pdev);
-	struct platform_device *usb_phy = glue->usb_phy;
 
 	platform_device_unregister(glue->musb_pdev);
-	usb_phy_generic_unregister(usb_phy);
 }
 
 #ifdef CONFIG_OF
