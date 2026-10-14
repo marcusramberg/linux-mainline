@@ -61,7 +61,7 @@ static const struct scpsys_domain_data scpsys_domain_data_mt6768[] = {
 			BUS_PROT_INFRA_NOACK_1(BIT(18)),
 			BUS_PROT_INFRA_NOACK(BIT(14) | BIT(16)),
 		},
-		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
+		.caps = MTK_SCPD_KEEP_DEFAULT_OFF | MTK_SCPD_ACTIVE_WAKEUP,
 	},
 	[MT6768_POWER_DOMAIN_DPY] = {
 		.name = "dpy",
