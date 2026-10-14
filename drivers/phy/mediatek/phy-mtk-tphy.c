@@ -671,6 +671,15 @@ DEFINE_SHOW_ATTRIBUTE(phy_type);
 /* these files will be removed when phy is released by phy core */
 static void phy_debugfs_init(struct mtk_phy_instance *inst)
 {
+	struct dentry *d;
+
+	/* of_xlate runs for every phy_get(), e.g. on each consumer rebind */
+	d = debugfs_lookup("type", inst->phy->debugfs);
+	if (d) {
+		dput(d);
+		return;
+	}
+
 	debugfs_create_file("type", 0444, inst->phy->debugfs, inst, &phy_type_fops);
 
 	switch (inst->type) {
