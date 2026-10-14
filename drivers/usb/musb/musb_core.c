@@ -2825,17 +2825,14 @@ static int musb_suspend(struct device *dev)
 
 	spin_lock_irqsave(&musb->lock, flags);
 
-	if (is_peripheral_active(musb)) {
-		/* FIXME force disconnect unless we know USB will wake
-		 * the system up quickly enough to respond ...
-		 */
-	} else if (is_host_active(musb)) {
-		/* we know all the children are suspended; sometimes
-		 * they will even be wakeup-enabled.
-		 */
-	}
-
 	musb_save_context(musb);
+
+	/*
+	 * Drop the pullup so the host sees a disconnect instead of a device
+	 * that stops answering; musb_restore_context() brings it back.
+	 */
+	musb_writeb(musb->mregs, MUSB_POWER,
+		    musb->context.power & ~MUSB_POWER_SOFTCONN);
 
 	spin_unlock_irqrestore(&musb->lock, flags);
 	return 0;
