@@ -881,6 +881,66 @@
 };
 
 / {
+
+	/*
+	 * H.264 encoder through the vendor VCU stack (nix/venc.nix): vpud
+	 * programs VENC from userspace, mtk-vcu forwards its GCE command lists.
+	 * The reg list is vpud's register map, in stock's order.
+	 */
+	vcu: vcu@16000000 {
+		compatible = "mediatek-vcu";
+		reg = <0 0x16000000 0 0x40000>,
+		      <0 0x17020000 0 0x10000>,
+		      <0 0x19002000 0 0x1000>;
+		iommus = <&iommu M4U_PORT_VENC_RCPU>, <&iommu M4U_PORT_VENC_REC>,
+			 <&iommu M4U_PORT_VENC_BSDMA>, <&iommu M4U_PORT_VENC_SV_COMV>,
+			 <&iommu M4U_PORT_VENC_RD_COMV>, <&iommu M4U_PORT_VENC_CUR_LUMA>,
+			 <&iommu M4U_PORT_VENC_CUR_CHROMA>, <&iommu M4U_PORT_VENC_REF_LUMA>,
+			 <&iommu M4U_PORT_VENC_REF_CHROMA>;
+		mboxes = <&gce 12 CMDQ_THR_PRIO_1>, <&gce 13 CMDQ_THR_PRIO_1>;
+		gce-event-names = "venc_eof", "venc_cmdq_pause_done",
+				  "venc_mb_done", "venc_128B_cnt_done";
+		mediatek,gce-events = <CMDQ_EVENT_VENC_FRAME_DONE>,
+				      <CMDQ_EVENT_VENC_PAUSE_DONE>,
+				      <CMDQ_EVENT_VENC_MB_DONE>,
+				      <CMDQ_EVENT_VENC_128BYTE_CNT_DONE>;
+		gce-norm-token = /bits/ 16 <0x2b8>;
+		gce-sec-token = /bits/ 16 <0x2b9>;
+		mediatek,vcuid = <0>;
+		mediatek,vcuname = "vcu";
+		mediatek,vcu-off = <0>;
+		mediatek,dec-gce-th-num = <0>;
+		mediatek,enc-gce-th-num = <2>;
+	};
+
+	vcu-iommu-venc {
+		compatible = "mediatek,vcu-io-venc";
+		iommus = <&iommu M4U_PORT_VENC_RCPU>, <&iommu M4U_PORT_VENC_REC>,
+			 <&iommu M4U_PORT_VENC_BSDMA>, <&iommu M4U_PORT_VENC_SV_COMV>,
+			 <&iommu M4U_PORT_VENC_RD_COMV>, <&iommu M4U_PORT_VENC_CUR_LUMA>,
+			 <&iommu M4U_PORT_VENC_CUR_CHROMA>, <&iommu M4U_PORT_VENC_REF_LUMA>,
+			 <&iommu M4U_PORT_VENC_REF_CHROMA>;
+		mediatek,vcuid = <0>;
+	};
+
+	vcodec-enc@17020000 {
+		compatible = "mediatek,mt6768-vcodec-enc";
+		reg = <0 0x17020000 0 0x2000>;
+		reg-names = "VENC_SYS";
+		interrupts = <GIC_SPI 243 IRQ_TYPE_LEVEL_LOW>;
+		iommus = <&iommu M4U_PORT_VENC_RCPU>, <&iommu M4U_PORT_VENC_REC>,
+			 <&iommu M4U_PORT_VENC_BSDMA>, <&iommu M4U_PORT_VENC_SV_COMV>,
+			 <&iommu M4U_PORT_VENC_RD_COMV>, <&iommu M4U_PORT_VENC_CUR_LUMA>,
+			 <&iommu M4U_PORT_VENC_CUR_CHROMA>, <&iommu M4U_PORT_VENC_REF_LUMA>,
+			 <&iommu M4U_PORT_VENC_REF_CHROMA>;
+		clocks = <&vencsys CLK_VENC_SET1_VENC>;
+		clock-names = "MT_CG_VENC";
+		mediatek,larbs = <&larb4>;
+		mediatek,vcu = <&vcu>;
+		mediatek,platform = "platform:mt6768";
+		mediatek,ipm = <1>;
+		venc-disable-hw-break = <1>;
+	};
 	sound: sound {
 		compatible = "mediatek,mt6768-mt6358-sound";
 		mediatek,platform = <&afe>;
