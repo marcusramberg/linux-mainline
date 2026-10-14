@@ -355,9 +355,6 @@ static int mtk_musb_exit(struct musb *musb)
 		phy_power_off(glue->phy);
 	phy_exit(glue->phy);
 	clk_bulk_disable_unprepare(MTK_MUSB_CLKS_NUM, glue->clks);
-
-	pm_runtime_put_sync(dev);
-	pm_runtime_disable(dev);
 	return 0;
 }
 
@@ -531,6 +528,8 @@ static void mtk_musb_remove(struct platform_device *pdev)
 	struct mtk_glue *glue = platform_get_drvdata(pdev);
 
 	platform_device_unregister(glue->musb_pdev);
+	pm_runtime_put_sync(&pdev->dev);
+	pm_runtime_disable(&pdev->dev);
 }
 
 #ifdef CONFIG_OF
