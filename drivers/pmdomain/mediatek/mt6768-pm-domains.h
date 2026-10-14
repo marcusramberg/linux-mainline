@@ -103,7 +103,8 @@ static const struct scpsys_domain_data scpsys_domain_data_mt6768[] = {
 		.bp_cfg = {
 			BUS_PROT_INFRA_NOACK(BIT(25)),
 			BUS_PROT_INFRA_NOACK(BIT(21) | BIT(22)),
-		}
+		},
+		.caps = MTK_SCPD_DOMAIN_SUPPLY,
 	},
 	[MT6768_POWER_DOMAIN_ISP] = {
 		.name = "isp",
@@ -156,7 +157,6 @@ static const struct scpsys_domain_data scpsys_domain_data_mt6768[] = {
 		.pwr_sta2nd_offs = 0x0184,
 		.sram_pdn_bits = 0,
 		.sram_pdn_ack_bits = 0,
-		//.caps = MTK_SCPD_DOMAIN_SUPPLY,
 	},
 	[MT6768_POWER_DOMAIN_CAM] = {
 		.name = "cam",
