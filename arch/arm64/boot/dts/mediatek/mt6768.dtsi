@@ -1055,8 +1055,10 @@
 						 <&mmsys CLK_MM_SMI_COMMON>,
 						 <&mmsys CLK_MM_SMI_COMM0>,
 						 <&mmsys CLK_MM_SMI_COMM1>,
-						 <&mmsys CLK_MM_SMI_LARB0>;
-					clock-names = "mm", "mm-0", "mm-1", "mm-2", "mm-3";
+						 <&mmsys CLK_MM_SMI_LARB0>,
+						 <&mmsys CLK_MM_IMG_DL_RELAY>;
+					clock-names = "mm", "mm-0", "mm-1", "mm-2", "mm-3",
+						      "mm-4";
 					mediatek,infracfg = <&infracfg_ao>;
 
 					power-domain@MT6768_POWER_DOMAIN_ISP {
