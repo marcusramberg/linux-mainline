@@ -546,6 +546,15 @@
 		};
 	};
 
+	keyboard_pins: keyboard-pins {
+		pins-col {
+			pinmux = <PINMUX_GPIO93__FUNC_KPCOL0>;
+			bias-pull-up = <MTK_PUPD_SET_R1R0_10>;
+			input-enable;
+			input-schmitt-enable;
+		};
+	};
+
 	/* stock muxes these to the SCP (SCP_SCL1/SDA1) for its sensor hub */
 	i2c1_pins: i2c1-pins {
 		pins-bus {
@@ -770,6 +779,16 @@
 	/delete-node/ opp-950000000;
 	/delete-node/ opp-975000000;
 	/delete-node/ opp-1000000000;
+};
+
+&keyboard {
+	pinctrl-names = "default";
+	pinctrl-0 = <&keyboard_pins>;
+	linux,keymap = <MATRIX_KEY(0x00, 0x00, KEY_VOLUMEUP)>;
+	keypad,num-rows = <1>;
+	keypad,num-columns = <1>;
+	debounce-delay-ms = <32>;
+	status = "okay";
 };
 
 &mipi_tx0 {
