@@ -128,8 +128,15 @@ static int gab_get_property(struct power_supply *psy,
 		return gab_read_channel(adc_bat, GAB_CURRENT, &val->intval);
 	case POWER_SUPPLY_PROP_POWER_NOW:
 		return gab_read_channel(adc_bat, GAB_POWER, &val->intval);
-	case POWER_SUPPLY_PROP_TEMP:
-		return gab_read_channel(adc_bat, GAB_TEMP, &val->intval);
+	case POWER_SUPPLY_PROP_TEMP: {
+		int ret;
+
+		/* IIO is in milli-Celsius, power supply in tenths */
+		ret = iio_read_channel_processed(adc_bat->channel[GAB_TEMP],
+						 &val->intval);
+		val->intval /= 100;
+		return ret;
+	}
 	case POWER_SUPPLY_PROP_CAPACITY: {
 		int uv, ret;
 
