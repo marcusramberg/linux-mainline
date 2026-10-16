@@ -39,14 +39,28 @@
 			<3667100 5>, <3205000 0>;
 	};
 
-	/* 10k NTC (vendor table = NCP15XH103), 24k pull-up to 2.8 V */
+	/*
+	 * 10k NTC (vendor table = NCP15XH103), 24k pull-up to 2.8 V. As
+	 * generic-adc-thermal so the fuel gauge can read it over IIO.
+	 */
 	battery_ntc: thermistor {
-		compatible = "murata,ncp15xh103";
+		compatible = "generic-adc-thermal";
 		io-channels = <&pmic_adc MT6358_AUXADC_BAT_TEMP>;
-		pullup-uv = <2800000>;
-		pullup-ohm = <24000>;
-		pulldown-ohm = <0>;
+		io-channel-names = "sensor-channel";
+		#io-channel-cells = <0>;
 		#thermal-sensor-cells = <0>;
+		/* mV = 2800 * R / (R + 24k) at 5 C steps */
+		temperature-lookup-table =
+			<(-40000) 2494>, <(-35000) 2410>, <(-30000) 2311>,
+			<(-25000) 2198>, <(-20000) 2071>, <(-15000) 1935>,
+			<(-10000) 1790>, <(-5000) 1639>, <0 1488>,
+			<5000 1340>, <10000 1197>, <15000 1062>,
+			<20000 938>, <25000 824>, <30000 720>, <35000 629>,
+			<40000 548>, <45000 476>, <50000 414>, <55000 359>,
+			<60000 312>, <65000 272>, <70000 238>, <75000 208>,
+			<80000 182>, <85000 160>, <90000 141>, <95000 124>,
+			<100000 109>, <105000 97>, <110000 86>, <115000 76>,
+			<120000 68>, <125000 61>;
 	};
 
 	/* the SCP's other sensor bus (SCP_SDA0/SCL0); no AP I2C function there */
@@ -61,8 +75,9 @@
 
 	fuel-gauge {
 		compatible = "adc-battery";
-		io-channels = <&pmic_adc MT6358_AUXADC_BATADC>, <&pmic_fgadc>;
-		io-channel-names = "voltage", "current";
+		io-channels = <&pmic_adc MT6358_AUXADC_BATADC>, <&pmic_fgadc>,
+			      <&battery_ntc>;
+		io-channel-names = "voltage", "current", "temperature";
 		monitored-battery = <&battery>;
 		power-supplies = <&charger>;
 	};
