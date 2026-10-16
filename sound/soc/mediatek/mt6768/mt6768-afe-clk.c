@@ -57,48 +57,54 @@ int mt6768_afe_enable_clock(struct mtk_base_afe *afe)
 	struct mt6768_afe_private *afe_priv = afe->platform_priv;
 	int ret;
 
-	ret = clk_prepare_enable(afe_priv->clk[CLK_INFRA_AUDIO]);
-	if (ret)
-		return ret;
-
-	ret = clk_prepare_enable(afe_priv->clk[CLK_INFRA_AUDIO_26M]);
-	if (ret)
-		goto err_audio_26m;
-
+	/*
+	 * The audio bus clocks run before the infra gate opens: a register
+	 * access through an open gate onto a stopped aud_intbus hangs the
+	 * SoC, a closed gate just drops it.
+	 */
 	ret = clk_prepare_enable(afe_priv->clk[CLK_MUX_AUDIO]);
 	if (ret)
-		goto err_mux_audio;
+		return ret;
 
 	/* the ADDA runs on a 26M base clock, keep audio_sel on 26M */
 	ret = clk_set_parent(afe_priv->clk[CLK_MUX_AUDIO],
 			     afe_priv->clk[CLK_CLK26M]);
 	if (ret)
-		goto err_mux_audio;
+		goto err_disable_mux_audio;
 
 	ret = clk_prepare_enable(afe_priv->clk[CLK_MUX_AUDIOINTBUS]);
 	if (ret)
-		goto err_mux_audio;
+		goto err_disable_mux_audio;
 
 	ret = clk_set_parent(afe_priv->clk[CLK_MUX_AUDIOINTBUS],
 			     afe_priv->clk[CLK_TOP_SYSPLL1_D4]);
 	if (ret)
-		goto err_mux_parent;
+		goto err_disable_intbus;
+
+	ret = clk_prepare_enable(afe_priv->clk[CLK_INFRA_AUDIO_26M]);
+	if (ret)
+		goto err_disable_intbus;
+
+	ret = clk_prepare_enable(afe_priv->clk[CLK_INFRA_AUDIO]);
+	if (ret)
+		goto err_disable_infra_26m;
 
 	ret = clk_prepare_enable(afe_priv->clk[CLK_AFE]);
 	if (ret)
-		goto err_mux_parent;
+		goto err_disable_infra;
 
 	return 0;
 
-err_mux_parent:
+err_disable_infra:
+	clk_disable_unprepare(afe_priv->clk[CLK_INFRA_AUDIO]);
+err_disable_infra_26m:
+	clk_disable_unprepare(afe_priv->clk[CLK_INFRA_AUDIO_26M]);
+err_disable_intbus:
 	clk_set_parent(afe_priv->clk[CLK_MUX_AUDIOINTBUS],
 		       afe_priv->clk[CLK_CLK26M]);
 	clk_disable_unprepare(afe_priv->clk[CLK_MUX_AUDIOINTBUS]);
-err_mux_audio:
+err_disable_mux_audio:
 	clk_disable_unprepare(afe_priv->clk[CLK_MUX_AUDIO]);
-err_audio_26m:
-	clk_disable_unprepare(afe_priv->clk[CLK_INFRA_AUDIO_26M]);
-	clk_disable_unprepare(afe_priv->clk[CLK_INFRA_AUDIO]);
 	return ret;
 }
 
@@ -106,13 +112,14 @@ int mt6768_afe_disable_clock(struct mtk_base_afe *afe)
 {
 	struct mt6768_afe_private *afe_priv = afe->platform_priv;
 
+	/* close the infra gate before the bus clocks stop, see above */
 	clk_disable_unprepare(afe_priv->clk[CLK_AFE]);
+	clk_disable_unprepare(afe_priv->clk[CLK_INFRA_AUDIO]);
+	clk_disable_unprepare(afe_priv->clk[CLK_INFRA_AUDIO_26M]);
 	clk_set_parent(afe_priv->clk[CLK_MUX_AUDIOINTBUS],
 		       afe_priv->clk[CLK_CLK26M]);
 	clk_disable_unprepare(afe_priv->clk[CLK_MUX_AUDIOINTBUS]);
 	clk_disable_unprepare(afe_priv->clk[CLK_MUX_AUDIO]);
-	clk_disable_unprepare(afe_priv->clk[CLK_INFRA_AUDIO_26M]);
-	clk_disable_unprepare(afe_priv->clk[CLK_INFRA_AUDIO]);
 
 	return 0;
 }
