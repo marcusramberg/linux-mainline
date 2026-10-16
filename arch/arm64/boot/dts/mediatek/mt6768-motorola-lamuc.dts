@@ -216,6 +216,10 @@
 	};
 };
 
+&auxadc {
+	status = "okay";
+};
+
 &cci {
 	proc-supply = <&mt6358_vproc12_reg>;
 	sram-supply = <&mt6358_vsram_proc12_reg>;
@@ -792,6 +796,10 @@
 		touchscreen-size-x = <1080>;
 		touchscreen-size-y = <2400>;
 	};
+};
+
+&thermal {
+	status = "okay";
 };
 
 &thermal_zones {
