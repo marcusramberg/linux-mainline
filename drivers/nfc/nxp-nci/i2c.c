@@ -41,12 +41,24 @@ struct nxp_nci_i2c_phy {
 			 * < 0 if hardware error occurred (e.g. i2c err)
 			 * and prevents normal operation.
 			 */
+	bool irq_enabled;
 };
 
 static int nxp_nci_i2c_set_mode(void *phy_id,
 				    enum nxp_nci_mode mode)
 {
 	struct nxp_nci_i2c_phy *phy = (struct nxp_nci_i2c_phy *) phy_id;
+	int irq = phy->i2c_dev->irq;
+
+	/*
+	 * Some controllers (NXP SN-series) drive IRQ high while VEN is low,
+	 * so keep it masked in cold mode. Callers hold info_lock, which the
+	 * IRQ thread takes: disable_irq() could deadlock.
+	 */
+	if (mode == NXP_NCI_MODE_COLD && phy->irq_enabled) {
+		disable_irq_nosync(irq);
+		phy->irq_enabled = false;
+	}
 
 	gpiod_set_value_cansleep(phy->gpiod_fw, (mode == NXP_NCI_MODE_FW) ? 1 : 0);
 	gpiod_set_value_cansleep(phy->gpiod_en, (mode != NXP_NCI_MODE_COLD) ? 1 : 0);
@@ -54,6 +66,10 @@ static int nxp_nci_i2c_set_mode(void *phy_id,
 
 	if (mode == NXP_NCI_MODE_COLD)
 		phy->hard_fault = 0;
+	else if (!phy->irq_enabled) {
+		enable_irq(irq);
+		phy->irq_enabled = true;
+	}
 
 	return 0;
 }
@@ -332,7 +348,7 @@ static int nxp_nci_i2c_probe(struct i2c_client *client)
 
 	r = request_threaded_irq(client->irq, NULL,
 				 nxp_nci_i2c_irq_thread_fn,
-				 irqflags | IRQF_ONESHOT,
+				 irqflags | IRQF_ONESHOT | IRQF_NO_AUTOEN,
 				 NXP_NCI_I2C_DRIVER_NAME, phy);
 	if (r < 0)
 		nfc_err(&client->dev, "Unable to register IRQ handler\n");
