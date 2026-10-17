@@ -404,6 +404,19 @@
 };
 
 /* front and auxiliary rear cameras */
+&i2c3 {
+	clock-frequency = <400000>;
+	status = "okay";
+
+	/* SN-series (stock nxp,sn-nci); only on the nfc_dsds SKU */
+	nfc@29 {
+		compatible = "nxp,nxp-nci-i2c";
+		reg = <0x29>;
+		interrupts-extended = <&pio 5 IRQ_TYPE_LEVEL_HIGH>;
+		enable-gpios = <&pio 1 GPIO_ACTIVE_HIGH>;
+	};
+};
+
 &i2c4 {
 	clock-frequency = <400000>;
 	pinctrl-names = "default";
