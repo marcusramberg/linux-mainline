@@ -104,6 +104,14 @@
 		enable-active-high;
 	};
 
+	/* stock vib_vol 9 is VIBR VOSEL 9, 2.8 V */
+	haptic {
+		compatible = "regulator-haptic";
+		haptic-supply = <&mt6358_vibr_reg>;
+		min-microvolt = <2800000>;
+		max-microvolt = <2800000>;
+	};
+
 	/* replaced by U-Boot with lk's figure */
 	memory@40000000 {
 		device_type = "memory";
