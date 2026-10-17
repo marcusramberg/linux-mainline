@@ -40,7 +40,7 @@ config LEDS_LM3601X
 	  of flash, torch and indicator classes.
 
 config LEDS_LM3644
-	tristate "LED support for the TI LM3644"
+	tristate "LED support for the TI LM3644 and Awinic AW36515"
 	depends on I2C && OF
 	depends on GPIOLIB
 	select REGMAP_I2C

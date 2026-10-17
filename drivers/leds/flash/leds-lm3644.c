@@ -53,21 +53,58 @@
 #define LM3644_LED2				BIT(1)
 #define LM3644_LED_ALL				(LM3644_LED1 | LM3644_LED2)
 
-#define LM3644_FLASH_MIN_UA			10900U
-#define LM3644_FLASH_STEP_UA			11725U
-#define LM3644_FLASH_MAX_UA			1500000U
+struct lm3644_variant {
+	u32 torch_min_ua;
+	u32 torch_step_ua;
+	u32 flash_min_ua;
+	u32 flash_step_ua;
+	u32 flash_max_ua;
+	u32 timeout_min_us;
+	u32 timeout_step_us;
+	u32 timeout_max_us;
+	u8 current_mask;
+	/* bit 7 of the LED1 current registers copies LED1's code to LED2 */
+	bool led2_override;
+};
 
-#define LM3644_TORCH_MIN_UA			977U
-#define LM3644_TORCH_STEP_UA			1400U
-#define LM3644_TT_TORCH_MIN_UA			1954U
-#define LM3644_TT_TORCH_STEP_UA			2800U
+static const struct lm3644_variant lm3644_data = {
+	.torch_min_ua = 977,
+	.torch_step_ua = 1400,
+	.flash_min_ua = 10900,
+	.flash_step_ua = 11725,
+	.flash_max_ua = 1500000,
+	.timeout_min_us = 10000,
+	.timeout_step_us = 10000,
+	.timeout_max_us = 100000,
+	.current_mask = LM3644_CURRENT_MASK,
+	.led2_override = true,
+};
 
-#define LM3644_TIMEOUT_MIN_US			10000U
-#define LM3644_TIMEOUT_STEP_US			10000U
-#define LM3644_TIMEOUT_LINEAR_MAX_US		100000U
-#define LM3644_TT_TIMEOUT_MIN_US		40000U
-#define LM3644_TT_TIMEOUT_STEP_US		40000U
-#define LM3644_TT_TIMEOUT_LINEAR_MAX_US		400000U
+static const struct lm3644_variant lm3644tt_data = {
+	.torch_min_ua = 1954,
+	.torch_step_ua = 2800,
+	.flash_min_ua = 10900,
+	.flash_step_ua = 11725,
+	.flash_max_ua = 1500000,
+	.timeout_min_us = 40000,
+	.timeout_step_us = 40000,
+	.timeout_max_us = 400000,
+	.current_mask = LM3644_CURRENT_MASK,
+	.led2_override = true,
+};
+
+static const struct lm3644_variant aw36515_data = {
+	.torch_min_ua = 980,
+	.torch_step_ua = 1960,
+	.flash_min_ua = 3910,
+	.flash_step_ua = 7830,
+	.flash_max_ua = 2000000,
+	.timeout_min_us = 40000,
+	.timeout_step_us = 40000,
+	.timeout_max_us = 400000,
+	.current_mask = 0xff,
+	.led2_override = false,
+};
 
 struct lm3644 {
 	struct device *dev;
@@ -75,12 +112,8 @@ struct lm3644 {
 	struct gpio_desc *enable_gpio;
 	struct mutex lock; /* Protects register accesses. */
 	struct led_classdev_flash flash;
+	const struct lm3644_variant *variant;
 	u32 sources;
-	u32 torch_min_ua;
-	u32 torch_step_ua;
-	u32 timeout_min_us;
-	u32 timeout_step_us;
-	u32 timeout_max_us;
 };
 
 static u8 lm3644_source_enable_mask(struct lm3644 *chip)
@@ -98,7 +131,16 @@ static u8 lm3644_source_enable_mask(struct lm3644 *chip)
 static int lm3644_set_current(struct lm3644 *chip, unsigned int led1_reg,
 			      unsigned int led2_reg, u8 code)
 {
-	int ret;
+	u8 mask = chip->variant->current_mask;
+	int ret = 0;
+
+	if (!chip->variant->led2_override) {
+		if (chip->sources & LM3644_LED1)
+			ret = regmap_write(chip->regmap, led1_reg, code);
+		if (!ret && chip->sources & LM3644_LED2)
+			ret = regmap_write(chip->regmap, led2_reg, code);
+		return ret;
+	}
 
 	if (chip->sources == LM3644_LED_ALL)
 		return regmap_write(chip->regmap, led1_reg,
@@ -110,11 +152,9 @@ static int lm3644_set_current(struct lm3644 *chip, unsigned int led1_reg,
 		return ret;
 
 	if (chip->sources & LM3644_LED1)
-		ret = regmap_update_bits(chip->regmap, led1_reg,
-					 LM3644_CURRENT_MASK, code);
+		ret = regmap_update_bits(chip->regmap, led1_reg, mask, code);
 	else
-		ret = regmap_update_bits(chip->regmap, led2_reg,
-					 LM3644_CURRENT_MASK, code);
+		ret = regmap_update_bits(chip->regmap, led2_reg, mask, code);
 
 	return ret;
 }
@@ -197,7 +237,7 @@ lm3644_torch_brightness_get(struct led_classdev *led_cdev)
 		goto error;
 
 	mutex_unlock(&chip->lock);
-	return (brightness & LM3644_CURRENT_MASK) + 1;
+	return (brightness & chip->variant->current_mask) + 1;
 
 error:
 	mutex_unlock(&chip->lock);
@@ -269,7 +309,8 @@ static int lm3644_strobe_get(struct led_classdev_flash *flash, bool *state)
 static int lm3644_timeout_set(struct led_classdev_flash *flash, u32 timeout)
 {
 	struct lm3644 *chip = container_of(flash, struct lm3644, flash);
-	u8 code = (timeout - chip->timeout_min_us) / chip->timeout_step_us;
+	u8 code = (timeout - chip->variant->timeout_min_us) /
+		  chip->variant->timeout_step_us;
 	int ret;
 
 	mutex_lock(&chip->lock);
@@ -330,6 +371,7 @@ static const struct led_flash_ops lm3644_flash_ops = {
 static int lm3644_parse_led(struct lm3644 *chip,
 			    struct fwnode_handle *child)
 {
+	const struct lm3644_variant *v = chip->variant;
 	struct led_classdev_flash *flash = &chip->flash;
 	struct led_classdev *led_cdev = &flash->led_cdev;
 	struct led_flash_setting *setting;
@@ -361,11 +403,10 @@ static int lm3644_parse_led(struct lm3644 *chip,
 		return dev_err_probe(chip->dev, ret,
 				     "missing led-max-microamp\n");
 
-	max_ua = clamp_val(max_ua, chip->torch_min_ua,
-			   chip->torch_min_ua +
-			   LM3644_CURRENT_MASK * chip->torch_step_ua);
+	max_ua = clamp_val(max_ua, v->torch_min_ua,
+			   v->torch_min_ua + v->current_mask * v->torch_step_ua);
 	led_cdev->max_brightness =
-		(max_ua - chip->torch_min_ua) / chip->torch_step_ua + 1;
+		(max_ua - v->torch_min_ua) / v->torch_step_ua + 1;
 	led_cdev->brightness_set_blocking = lm3644_torch_brightness_set;
 	led_cdev->brightness_get = lm3644_torch_brightness_get;
 	led_cdev->flags |= LED_DEV_CAP_FLASH | LED_CORE_SUSPENDRESUME;
@@ -376,10 +417,9 @@ static int lm3644_parse_led(struct lm3644 *chip,
 				     "missing flash-max-microamp\n");
 
 	setting = &flash->brightness;
-	setting->min = LM3644_FLASH_MIN_UA;
-	setting->step = LM3644_FLASH_STEP_UA;
-	setting->max = clamp_val(max_ua, setting->min,
-				 LM3644_FLASH_MAX_UA);
+	setting->min = v->flash_min_ua;
+	setting->step = v->flash_step_ua;
+	setting->max = clamp_val(max_ua, setting->min, v->flash_max_ua);
 	setting->max = setting->min +
 		       (setting->max - setting->min) / setting->step *
 		       setting->step;
@@ -392,10 +432,9 @@ static int lm3644_parse_led(struct lm3644 *chip,
 				     "missing flash-max-timeout-us\n");
 
 	setting = &flash->timeout;
-	setting->min = chip->timeout_min_us;
-	setting->step = chip->timeout_step_us;
-	setting->max = clamp_val(max_ua, setting->min,
-				 chip->timeout_max_us);
+	setting->min = v->timeout_min_us;
+	setting->step = v->timeout_step_us;
+	setting->max = clamp_val(max_ua, setting->min, v->timeout_max_us);
 	setting->max = setting->min +
 		       (setting->max - setting->min) / setting->step *
 		       setting->step;
@@ -468,18 +507,13 @@ static int lm3644_probe(struct i2c_client *client)
 	if (ret)
 		return dev_err_probe(dev, ret, "failed to read device ID\n");
 
-	if ((device_id & 0x7) == 0x2 || (device_id & 0x7) == 0x4) {
-		chip->torch_min_ua = LM3644_TT_TORCH_MIN_UA;
-		chip->torch_step_ua = LM3644_TT_TORCH_STEP_UA;
-		chip->timeout_min_us = LM3644_TT_TIMEOUT_MIN_US;
-		chip->timeout_step_us = LM3644_TT_TIMEOUT_STEP_US;
-		chip->timeout_max_us = LM3644_TT_TIMEOUT_LINEAR_MAX_US;
-	} else {
-		chip->torch_min_ua = LM3644_TORCH_MIN_UA;
-		chip->torch_step_ua = LM3644_TORCH_STEP_UA;
-		chip->timeout_min_us = LM3644_TIMEOUT_MIN_US;
-		chip->timeout_step_us = LM3644_TIMEOUT_STEP_US;
-		chip->timeout_max_us = LM3644_TIMEOUT_LINEAR_MAX_US;
+	/* the AW36515 reads 0x02 here too, so only trust it for the LM3644 */
+	chip->variant = i2c_get_match_data(client);
+	if (!chip->variant) {
+		if ((device_id & 0x7) == 0x2 || (device_id & 0x7) == 0x4)
+			chip->variant = &lm3644tt_data;
+		else
+			chip->variant = &lm3644_data;
 	}
 
 	ret = regmap_write(chip->regmap, LM3644_REG_ENABLE,
@@ -525,12 +559,14 @@ static void lm3644_shutdown(struct i2c_client *client)
 }
 
 static const struct of_device_id lm3644_of_match[] = {
+	{ .compatible = "awinic,aw36515", .data = &aw36515_data },
 	{ .compatible = "ti,lm3644" },
 	{}
 };
 MODULE_DEVICE_TABLE(of, lm3644_of_match);
 
 static const struct i2c_device_id lm3644_id[] = {
+	{ "aw36515", (kernel_ulong_t)&aw36515_data },
 	{ "lm3644" },
 	{}
 };
@@ -548,5 +584,5 @@ static struct i2c_driver lm3644_driver = {
 module_i2c_driver(lm3644_driver);
 
 MODULE_AUTHOR("Oleksii Onchul <oleksiionchul@gmail.com>");
-MODULE_DESCRIPTION("Texas Instruments LM3644 flash LED driver");
+MODULE_DESCRIPTION("Texas Instruments LM3644 and Awinic AW36515 flash LED driver");
 MODULE_LICENSE("GPL");
