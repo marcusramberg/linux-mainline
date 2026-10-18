@@ -1218,3 +1218,41 @@
 &camsv2 {
 	status = "okay";
 };
+
+/* fingerprint sensor's VDDIO */
+&mt6358_vio28_reg {
+	regulator-always-on;
+};
+
+&spi0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&fp_spi_pins>;
+	mediatek,pad-select = <0>;
+	status = "okay";
+
+	/* FPC1560 in the power key; libfprint drives it through spidev */
+	fingerprint@0 {
+		compatible = "fpc,fpc1560";
+		reg = <0>;
+		/* 12 MHz gives read errors */
+		spi-max-frequency = <4000000>;
+	};
+};
+
+&pio {
+	fp_spi_pins: fp-spi-pins {
+		pins-spi {
+			pinmux = <PINMUX_GPIO32__FUNC_SPI0_MI>,
+				 <PINMUX_GPIO33__FUNC_SPI0_CSB>,
+				 <PINMUX_GPIO34__FUNC_SPI0_MO>,
+				 <PINMUX_GPIO35__FUNC_SPI0_CLK>;
+			drive-strength = <4>;
+		};
+	};
+
+	fp-rst-hog {
+		gpio-hog;
+		gpios = <112 GPIO_ACTIVE_HIGH>;
+		output-high;
+	};
+};
