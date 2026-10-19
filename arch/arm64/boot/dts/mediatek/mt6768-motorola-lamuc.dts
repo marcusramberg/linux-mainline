@@ -1256,3 +1256,17 @@
 		output-high;
 	};
 };
+
+/ {
+	/* Trustonic Kinibi (out-of-tree mcDrvModule): its notification IRQ */
+	tee {
+		compatible = "trustonic,mobicore";
+		/* lk adds this to its FDT on stock; without it the driver is a stub */
+		trustonic,real-drv = <1>;
+		/* the driver hands the TEE irq_data->hwirq as the SW IRQ to raise,
+		 * so this has to be the GIC INTID (329), not the sysirq number
+		 */
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SPI 297 IRQ_TYPE_EDGE_RISING 0>;
+	};
+};
