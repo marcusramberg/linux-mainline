@@ -669,6 +669,55 @@ static const struct snd_soc_component_driver mt6768_afe_pcm_dai_component = {
 	.name = "mt6768-afe-pcm-dai",
 };
 
+/*
+ * Control and DAPM register access must wake the AFE: with the ifr_audio gate
+ * closed, writes are dropped and reads return 0.
+ */
+static unsigned int mt6768_afe_component_read(struct snd_soc_component *cmpnt,
+					      unsigned int reg)
+{
+	struct mtk_base_afe *afe = snd_soc_component_get_drvdata(cmpnt);
+	unsigned int val = 0;
+
+	if (pm_runtime_resume_and_get(afe->dev) < 0)
+		return 0;
+
+	regmap_read(afe->regmap, reg, &val);
+	pm_runtime_put_autosuspend(afe->dev);
+
+	return val;
+}
+
+static int mt6768_afe_component_write(struct snd_soc_component *cmpnt,
+				      unsigned int reg, unsigned int val)
+{
+	struct mtk_base_afe *afe = snd_soc_component_get_drvdata(cmpnt);
+	int ret;
+
+	ret = pm_runtime_resume_and_get(afe->dev);
+	if (ret < 0)
+		return ret;
+
+	ret = regmap_write(afe->regmap, reg, val);
+	pm_runtime_put_autosuspend(afe->dev);
+
+	return ret;
+}
+
+static int mt6768_afe_component_probe(struct snd_soc_component *cmpnt)
+{
+	return mtk_afe_add_sub_dai_control(cmpnt);
+}
+
+static const struct snd_soc_component_driver mt6768_afe_pcm_platform = {
+	.name		= AFE_PCM_NAME,
+	.pointer	= mtk_afe_pcm_pointer,
+	.pcm_new	= mtk_afe_pcm_new,
+	.probe		= mt6768_afe_component_probe,
+	.read		= mt6768_afe_component_read,
+	.write		= mt6768_afe_component_write,
+};
+
 static int mt6768_dai_memif_register(struct mtk_base_afe *afe)
 {
 	struct mtk_base_afe_dai *dai;
@@ -893,7 +942,7 @@ static int mt6768_afe_pcm_dev_probe(struct platform_device *pdev)
 	pm_runtime_enable(dev);
 
 	/* register platform */
-	ret = devm_snd_soc_register_component(dev, &mtk_afe_pcm_platform,
+	ret = devm_snd_soc_register_component(dev, &mt6768_afe_pcm_platform,
 					      NULL, 0);
 	if (ret) {
 		dev_warn(dev, "err_platform\n");
