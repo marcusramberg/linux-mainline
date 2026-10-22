@@ -22,7 +22,11 @@
 		mmc1 = &mmc1;
 	};
 
-	/* vendor gauge profile battery1_profile_t1 (25 C); battery ID unread */
+	/*
+	 * Vendor gauge profile battery2_profile_t1 (25 C): this unit's battery
+	 * is COSRL52COS (proinfo +0x201), the third of the six names stock's
+	 * mtk_battery maps to profiles. Other batteries differ by <10 mV.
+	 */
 	battery: battery {
 		compatible = "simple-battery";
 		device-chemistry = "lithium-ion-polymer";
@@ -32,12 +36,12 @@
 		/* measured, 49 mV sag at 623 mA (profile: 88-93 mOhm at 25 C) */
 		factory-internal-resistance-micro-ohms = <80000>;
 		ocv-capacity-celsius = <25>;
-		ocv-capacity-table-0 = <4461000 100>, <4400974 95>, <4349768 90>,
-			<4293264 85>, <4232175 80>, <4170600 75>, <4112594 70>,
-			<4058013 65>, <4008020 60>, <3946004 55>, <3896000 50>,
-			<3864312 45>, <3838800 40>, <3817727 35>, <3799709 30>,
-			<3775875 25>, <3752462 20>, <3722573 15>, <3696189 10>,
-			<3667100 5>, <3205000 0>;
+		ocv-capacity-table-0 = <4471000 100>, <4404111 95>, <4353762 90>,
+			<4296891 85>, <4235460 80>, <4174175 75>, <4114576 70>,
+			<4059525 65>, <4009200 60>, <3951713 55>, <3898100 50>,
+			<3865413 45>, <3839940 40>, <3818828 35>, <3800472 30>,
+			<3775525 25>, <3751660 20>, <3722867 15>, <3697121 10>,
+			<3658336 5>, <3133000 0>;
 	};
 
 	/*
