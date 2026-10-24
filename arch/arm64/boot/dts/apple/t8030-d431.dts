@@ -1,0 +1,123 @@
+// SPDX-License-Identifier: GPL-2.0-only OR MIT
+/*
+ * Apple D431
+ *
+ * Scanout stays on the iBoot framebuffer (simpledrm). The MIPI host is only
+ * used for DCS brightness writes to the Summit panel; the ADT gives an 11-bit
+ * level encoding and boot brightness 598, the same as D421.
+ */
+/dts-v1/;
+
+#include "t8030.dtsi"
+#include "t8030-common.dtsi"
+
+/ {
+	compatible = "apple,d431", "apple,t8030", "apple,arm-platform";
+	model = "Apple iPhone 11 Pro Max";
+
+	aliases {
+		wifi0 = &wifi0;
+	};
+
+	chosen {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+		stdout-path = "serial0:115200n8";
+
+		framebuffer@0 {
+			compatible = "apple,simple-framebuffer", "simple-framebuffer";
+			reg = <0 0 0 0>; /* To be filled by loader */
+
+			/* Format properties will be added by loader */
+			status = "disabled";
+		};
+	};
+};
+
+&{/soc} {
+	dsi@230400000 {
+		compatible = "apple,t8030-display-pipe-mipi";
+		reg = <0x2 0x30400000 0x0 0xc0000>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		panel@0 {
+			compatible = "apple,d431-summit", "apple,d421-summit",
+				     "apple,summit";
+			reg = <0>;
+			max-brightness = <2047>;
+			default-brightness = <598>;
+		};
+	};
+};
+
+/*
+ * Multitouch digitizer: HBPP bootloader on SPI1, HID-over-SPI afterwards.
+ * ADT: CS GPIO 95, reset GPIO 197 (assumed active low), IRQ on AOP GPIO 34,
+ * reference clock gated by SMC key gP00 (PMU GPIO 0); the LDO is marked
+ * "Always Powered" in the firmware config. 8 MHz and 250 us CS idle come
+ * from the HIDSPI config shipped with the firmware.
+ */
+&spi1 {
+	cs-gpios = <&pinctrl_ap 95 GPIO_ACTIVE_LOW>;
+	status = "okay";
+
+	touchscreen@0 {
+		compatible = "apple,d431-touchscreen";
+		reg = <0>;
+		spi-max-frequency = <8000000>;
+		spi-cs-inactive-delay-ns = <250000>;
+		reset-gpios = <&pinctrl_ap 197 GPIO_ACTIVE_LOW>;
+		enable-gpios = <&smc_gpio 0 GPIO_ACTIVE_HIGH>;
+		interrupts-extended = <&pinctrl_aop 34 IRQ_TYPE_LEVEL_LOW>;
+		firmware-name = "apple/mtfw-d431.bin";
+	};
+};
+
+&usb2phy {
+	apple,cfg0-device = <0x27373bf3>;
+	apple,cfg1-device = <0x00020c44>;
+	apple,cfg0-host = <0x27373b53>;
+	apple,cfg1-host = <0x00020c44>;
+	status = "okay";
+};
+
+&usb_dart0 {
+	status = "okay";
+};
+
+&usb_dart1 {
+	status = "okay";
+};
+
+&usb_drd {
+	dr_mode = "peripheral";
+	maximum-speed = "high-speed";
+	status = "okay";
+};
+
+&{/soc/nvme@27acc0000} {
+	status = "okay";
+};
+
+&pcie_dart2 {
+	status = "okay";
+};
+
+&pcie0 {
+	status = "okay";
+};
+
+&port02 {
+	bus-range = <1 1>;
+
+	wifi0: wifi@0,0 {
+		compatible = "pci14e4,4425";
+		reg = <0x10000 0x0 0x0 0x0 0x0>;
+		/* Filled from the Apple Device Tree by m1n1. */
+		local-mac-address = [00 00 00 00 00 00];
+		apple,antenna-sku = "XX";
+		brcm,board-type = "apple,tala";
+	};
+};

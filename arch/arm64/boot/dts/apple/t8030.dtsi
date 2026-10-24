@@ -29,6 +29,16 @@
 		clock-frequency = <24000000>;
 	};
 
+	/*
+	 * SPI reference clock (ADT clock-id 369), rate not yet measured.
+	 * A too-high value only slows the bus down; adjust after measuring.
+	 */
+	clk_spi: clock-spi {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <200000000>;
+	};
+
 	memory@800000000 {
 		device_type = "memory";
 		reg = <0x8 0 0 0>; /* To be filled by loader */
@@ -292,6 +302,27 @@
 			};
 		};
 
+		pinctrl_aop: pinctrl@24a820000 {
+			compatible = "apple,t8030-pinctrl",
+				     "apple,t8103-pinctrl";
+			reg = <0x2 0x4a820000 0x0 0x4000>;
+
+			gpio-controller;
+			#gpio-cells = <2>;
+			gpio-ranges = <&pinctrl_aop 0 0 49>;
+			apple,npins = <49>;
+
+			interrupt-controller;
+			#interrupt-cells = <2>;
+			interrupts = <AIC_IRQ 196 IRQ_TYPE_LEVEL_HIGH>,
+				     <AIC_IRQ 197 IRQ_TYPE_LEVEL_HIGH>,
+				     <AIC_IRQ 198 IRQ_TYPE_LEVEL_HIGH>,
+				     <AIC_IRQ 199 IRQ_TYPE_LEVEL_HIGH>,
+				     <AIC_IRQ 200 IRQ_TYPE_LEVEL_HIGH>,
+				     <AIC_IRQ 201 IRQ_TYPE_LEVEL_HIGH>,
+				     <AIC_IRQ 202 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
 		spmi: spmi@23d180700 {
 			compatible = "apple,t8030-spmi",
 				     "apple,t8103-spmi";
@@ -419,6 +450,17 @@
 					  "recv-empty", "recv-not-empty";
 			#mbox-cells = <0>;
 			status = "okay";
+		};
+
+		spi1: spi@235104000 {
+			compatible = "apple,t8030-spi", "apple,t8103-spi",
+				     "apple,spi";
+			reg = <0x2 0x35104000 0x0 0x4000>;
+			interrupts = <AIC_IRQ 445 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clk_spi>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
 		};
 
 		uart0: serial@235200000 {

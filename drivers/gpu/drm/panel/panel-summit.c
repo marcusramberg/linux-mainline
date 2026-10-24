@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
 #include <linux/backlight.h>
+#include <linux/delay.h>
 #include <linux/mod_devicetable.h>
 #include <linux/property.h>
 #include <drm/drm_device.h>
@@ -14,6 +15,8 @@
 struct summit_panel_data {
 	bool generic_brightness;
 	bool has_fixed_mode;
+	/* Nonzero: brightness 0 enters DCS sleep; the delay is sleep-out to display-on. */
+	unsigned int sleep_out_delay_ms;
 };
 
 struct summit_data {
@@ -21,6 +24,7 @@ struct summit_data {
 	struct backlight_device *bl;
 	struct drm_panel panel;
 	const struct summit_panel_data *data;
+	bool asleep;
 };
 
 static int summit_write_brightness(struct summit_data *s_data,
@@ -47,6 +51,27 @@ static int summit_set_brightness(struct device *dev)
 {
 	struct summit_data *s_data = dev_get_drvdata(dev);
 	unsigned int level = backlight_get_brightness(s_data->bl);
+	unsigned int delay = s_data->data->sleep_out_delay_ms;
+	int ret;
+
+	if (delay && !level) {
+		if (s_data->asleep)
+			return 0;
+		summit_write_brightness(s_data, 0);
+		mipi_dsi_dcs_set_display_off(s_data->dsi);
+		ret = mipi_dsi_dcs_enter_sleep_mode(s_data->dsi);
+		s_data->asleep = true;
+		return ret;
+	}
+
+	if (s_data->asleep) {
+		ret = mipi_dsi_dcs_exit_sleep_mode(s_data->dsi);
+		if (ret)
+			return ret;
+		msleep(delay);
+		mipi_dsi_dcs_set_display_on(s_data->dsi);
+		s_data->asleep = false;
+	}
 
 	return summit_write_brightness(s_data, level);
 }
@@ -167,6 +192,7 @@ static const struct summit_panel_data summit_touchbar_data = {
 
 static const struct summit_panel_data summit_d421_data = {
 	.generic_brightness = true,
+	.sleep_out_delay_ms = 70, /* ADT sleepout-to-displayon-delay */
 };
 
 static const struct of_device_id summit_of_match[] = {

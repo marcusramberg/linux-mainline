@@ -293,6 +293,7 @@ properties:
         items:
           - enum:
               - apple,d421 # iPhone 11 Pro
+              - apple,d431 # iPhone 11 Pro Max
               - apple,d79 # iPhone SE (2nd generation)
               - apple,n104 # iPhone 11
           - const: apple,t8030

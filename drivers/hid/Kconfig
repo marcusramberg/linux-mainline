@@ -440,6 +440,15 @@ config HID_VIVALDI_COMMON
 	  option so that drivers can use common code to parse the HID
 	  descriptors for vivaldi function row keymap.
 
+config HID_APPLE_SPI_MT
+	tristate "Apple HBPP-booted HID-over-SPI multitouch digitizer"
+	depends on SPI && OF
+	select CRC16
+	help
+	  Support for the SPI multitouch digitizer of Apple iPhones such as the
+	  iPhone 11 Pro Max (D431). Uploads the firmware with the HBPP
+	  bootloader protocol and then speaks Apple HID-over-SPI.
+
 config HID_GOODIX_SPI
 	tristate "Goodix GT7986U SPI HID touchscreen"
 	depends on SPI_MASTER
