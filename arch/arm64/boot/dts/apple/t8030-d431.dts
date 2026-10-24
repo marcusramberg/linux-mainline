@@ -69,7 +69,7 @@
 		spi-max-frequency = <8000000>;
 		spi-cs-inactive-delay-ns = <250000>;
 		reset-gpios = <&pinctrl_ap 197 GPIO_ACTIVE_LOW>;
-		enable-gpios = <&smc_gpio 0 GPIO_ACTIVE_HIGH>;
+		apple,smc = <&smc>;
 		interrupts-extended = <&pinctrl_aop 34 IRQ_TYPE_LEVEL_LOW>;
 		firmware-name = "apple/mtfw-d431.bin";
 	};

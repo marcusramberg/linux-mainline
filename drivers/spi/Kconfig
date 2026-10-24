@@ -118,6 +118,13 @@ config SPI_AMLOGIC_SPISG
 	  communication controller), which is available on platforms such as
 	  Amlogic A4 SoCs.
 
+config SPI_APPLE_S5L
+	tristate "Apple S5L-lineage SPI controller (A4 to A13)"
+	depends on ARCH_APPLE || COMPILE_TEST
+	help
+	  Polled driver for the older Apple SPI block found on the A-series
+	  iPhone SoCs (ADT "spi-1,samsung"), e.g. the T8030 touch digitizer bus.
+
 config SPI_APPLE
 	tristate "Apple SoC SPI Controller platform driver"
 	depends on ARCH_APPLE || COMPILE_TEST

@@ -13,9 +13,12 @@
 #include <linux/gpio/consumer.h>
 #include <linux/hid.h>
 #include <linux/interrupt.h>
+#include <linux/mfd/macsmc.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/of.h>
+#include <linux/of_platform.h>
+#include <linux/platform_device.h>
 #include <linux/spi/spi.h>
 #include <linux/unaligned.h>
 #include <linux/wait.h>
@@ -94,7 +97,6 @@ struct mt_report {
 struct apple_mt {
 	struct spi_device *spi;
 	struct gpio_desc *reset_gpio;
-	struct gpio_desc *enable_gpio;
 	const char *fw_name;
 
 	struct completion boot_irq;
@@ -106,6 +108,8 @@ struct apple_mt {
 	struct spi_transfer rx_xfer, tx_xfer, status_xfer;
 	u8 *rx_buf, *tx_buf, *status_buf;
 	u8 hbpp_ack[2];
+	u8 hbpp_ack_rx[2];
+	unsigned int hbpp_blobs;
 
 	struct mt_iface ifaces[MT_MAX_IFACES];
 	struct mt_report report;
@@ -163,7 +167,7 @@ static int hbpp_send_blob(struct apple_mt *mt, const u8 *data, u32 size,
 {
 	struct spi_transfer xfers[2] = {
 		{ .tx_buf = data, .len = size, .bits_per_word = init ? 8 : 16 },
-		{ .tx_buf = mt->hbpp_ack, .len = 2 },
+		{ .tx_buf = mt->hbpp_ack, .rx_buf = mt->hbpp_ack_rx, .len = 2 },
 	};
 	int err;
 
@@ -171,6 +175,9 @@ static int hbpp_send_blob(struct apple_mt *mt, const u8 *data, u32 size,
 	err = spi_sync_transfer(mt->spi, xfers, 2);
 	if (err)
 		return err;
+	if (mt->hbpp_blobs++ < 4 || mt->hbpp_ack_rx[0] || mt->hbpp_ack_rx[1])
+		dev_info(&mt->spi->dev, "HBPP blob %u (%u bytes) ack %2ph\n",
+			 mt->hbpp_blobs, size, mt->hbpp_ack_rx);
 	/* The ack irq is not reliable; the bootloader is happy regardless. */
 	wait_for_completion_timeout(&mt->boot_irq, msecs_to_jiffies(20));
 	return 0;
@@ -557,7 +564,7 @@ static void mt_read_packet(struct apple_mt *mt)
 				wake_up_interruptible(&mt->wait);
 			}
 		} else {
-			dev_info(&mt->spi->dev, "short packet: %*ph\n", (int)min(length, 16UL), pkt->data);
+			dev_info_ratelimited(&mt->spi->dev, "short packet, raw %16ph\n", mt->rx_buf);
 		}
 		return;
 	}
@@ -642,6 +649,31 @@ fail:
 	return err;
 }
 
+static bool smc_done;
+
+static int mt_smc_write(struct device *dev, smc_key key, u32 val)
+{
+	struct device_node *np = of_parse_phandle(dev->of_node, "apple,smc", 0);
+	struct platform_device *pdev;
+	struct apple_smc *smc;
+	int err;
+
+	if (!np)
+		return -ENODEV;
+	pdev = of_find_device_by_node(np);
+	of_node_put(np);
+	if (!pdev)
+		return -EPROBE_DEFER;
+	smc = dev_get_drvdata(&pdev->dev);
+	put_device(&pdev->dev);
+	if (!smc)
+		return -EPROBE_DEFER;
+	err = apple_smc_write_u32(smc, key, val);
+	if (err)
+		dev_err(dev, "SMC write %p4ch = %#x failed: %d\n", &key, val, err);
+	return err;
+}
+
 static int mt_probe(struct spi_device *spi)
 {
 	struct device *dev = &spi->dev;
@@ -682,11 +714,20 @@ static int mt_probe(struct spi_device *spi)
 	if (err)
 		return dev_err_probe(dev, err, "firmware-name\n");
 
-	/* Reference clock first (ADT power-sequence: clock_enable, 10 ms). */
-	mt->enable_gpio = devm_gpiod_get_optional(dev, "enable", GPIOD_OUT_HIGH);
-	if (IS_ERR(mt->enable_gpio))
-		return dev_err_probe(dev, PTR_ERR(mt->enable_gpio), "enable gpio\n");
-	msleep(10);
+	/*
+	 * ADT: function-power_ldo = pKW4(rBK3, 0x5020000), function-clock_enable =
+	 * pKW4(gP00, 0x8000000); the enable value is ORed in. Written once per boot so
+	 * a re-bind can test other values written through debugfs.
+	 */
+	if (!smc_done) {
+		err = mt_smc_write(dev, SMC_KEY(rBK3), 0x5020001);
+		if (!err)
+			err = mt_smc_write(dev, SMC_KEY(gP00), 0x8000001);
+		if (err)
+			return dev_err_probe(dev, err, "smc power/clock\n");
+		smc_done = true;
+		msleep(10);
+	}
 
 	mt->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
 	if (IS_ERR(mt->reset_gpio))

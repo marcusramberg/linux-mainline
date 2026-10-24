@@ -45,3 +45,37 @@
 		power-domains = <&ps_usb>;
 	};
 };
+
+/* SIO/SPI_P/SPI1 from the ADT pmgr device list: psreg 2 base 0x80100, psidx 17/25/31 */
+&pmgr {
+	ps_sio: power-controller@80188 {
+		compatible = "apple,t8030-pmgr-pwrstate",
+			     "apple,t8103-pmgr-pwrstate";
+		reg = <0x80188 4>;
+		#power-domain-cells = <0>;
+		#reset-cells = <0>;
+		label = "sio";
+		apple,always-on;
+	};
+
+	ps_spi_p: power-controller@801c8 {
+		compatible = "apple,t8030-pmgr-pwrstate",
+			     "apple,t8103-pmgr-pwrstate";
+		reg = <0x801c8 4>;
+		#power-domain-cells = <0>;
+		#reset-cells = <0>;
+		label = "spi_p";
+		apple,always-on;
+		power-domains = <&ps_sio>;
+	};
+
+	ps_spi1: power-controller@801f8 {
+		compatible = "apple,t8030-pmgr-pwrstate",
+			     "apple,t8103-pmgr-pwrstate";
+		reg = <0x801f8 4>;
+		#power-domain-cells = <0>;
+		#reset-cells = <0>;
+		label = "spi1";
+		power-domains = <&ps_spi_p>;
+	};
+};
