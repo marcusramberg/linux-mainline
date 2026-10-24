@@ -8,10 +8,14 @@
  */
 
 #include <linux/crc16.h>
+#include <linux/debugfs.h>
 #include <linux/delay.h>
 #include <linux/firmware.h>
 #include <linux/gpio/consumer.h>
 #include <linux/hid.h>
+#include <linux/input.h>
+#include <linux/input/mt.h>
+#include <linux/input/touchscreen.h>
 #include <linux/interrupt.h>
 #include <linux/mfd/macsmc.h>
 #include <linux/module.h>
@@ -25,9 +29,10 @@
 
 /* HIDSPI config shipped with the firmware: Transfer Length, Padding Length,
  * Inter Stage Us, Max Input Report Length. */
-#define MT_PKT_LEN		512
-#define MT_PKT_DATA		(MT_PKT_LEN - 10)
-#define MT_STATUS_LEN		4
+#define MT_PKT_LEN		516	/* 4 padding + 512-byte packet; crc covers the 512 */
+#define MT_PKT_DATA		(MT_PKT_LEN - 14)
+#define MT_PKT_MAGIC		0xdeadbeef
+#define MT_STATUS_LEN		8	/* padding + status word, both directions */
 #define MT_INTER_STAGE_US	200
 #define MT_MAX_REPORT		4096
 #define MT_DESC_MAX		512
@@ -35,6 +40,7 @@
 #define MT_DEV_INFO		0xd0
 #define MT_READ_PACKET		0x20
 #define MT_WRITE_PACKET		0x40
+#define MT_IDLE_PACKET		0x80	/* host read request; device "nothing to send" */
 #define MT_WAIT			msecs_to_jiffies(1000)
 
 #define HBPP_FW_MAGIC		0x5746325A
@@ -45,6 +51,8 @@
 #define HBPP_CAL_PROP		"apple,z2-cal-blob"
 
 static const u8 mt_booted[4] = { 0xa0, 0x80, 0x00, 0x00 };
+/* D431 firmware "Interface Config": one HID interface "grape"; the device answers no info requests. */
+static const u8 mt_grape_desc[] = { 0x05, 0x0d, 0x09, 0x04, 0xa1, 0x01, 0x06, 0x00, 0xff, 0x09, 0x23, 0x95, 0x01, 0xa1, 0x00, 0x05, 0x0d, 0x09, 0x04, 0x76, 0xc7, 0x27, 0x82, 0x22, 0x01, 0xc0, 0xc0 };
 static const u8 mt_status_ok[4] = { 0xac, 0x27, 0x68, 0xd5 };
 
 struct mt_msg_hdr {
@@ -57,6 +65,7 @@ struct mt_msg_hdr {
 } __packed;
 
 struct mt_packet {
+	__le32 magic;	/* HIDSPI "Padding Length" 4 */
 	u8 flags;
 	u8 device;
 	__le16 offset;
@@ -101,12 +110,21 @@ struct apple_mt {
 
 	struct completion boot_irq;
 	bool hbpp_done;
+	bool crc_with_magic;
+	unsigned int dumped;
 
 	wait_queue_head_t wait;
 	struct mutex tx_lock;
+	struct input_dev *input;
+	/* debug: ring of raw 0x75 frames, [u16 len][512 bytes] each, exposed in debugfs */
+	u8 *ring;
+	unsigned int ring_pos;
+	struct debugfs_blob_wrapper ring_blob;
+	struct dentry *dbg;
+	struct touchscreen_properties props;
 	struct spi_message rx_msg, tx_msg;
-	struct spi_transfer rx_xfer, tx_xfer, status_xfer;
-	u8 *rx_buf, *tx_buf, *status_buf;
+	struct spi_transfer rx_xfer, tx_xfer, rx_status_xfer, tx_status_xfer;
+	u8 *rx_buf, *tx_buf, *status_buf, *status_tx, *rx_tx;
 	u8 hbpp_ack[2];
 	u8 hbpp_ack_rx[2];
 	unsigned int hbpp_blobs;
@@ -238,6 +256,107 @@ static int hbpp_upload(struct apple_mt *mt)
 
 /* ---- HID-over-SPI transport ------------------------------------------- */
 
+/*
+ * Every packet transaction ends with a second stage under the same chip select,
+ * MT_INTER_STAGE_US later: both sides send [zero padding][status word].
+ */
+static bool mt_status(struct apple_mt *mt)
+{
+	if (memcmp(mt->status_buf + 4, mt_status_ok, 4)) {
+		dev_warn_ratelimited(&mt->spi->dev, "status %8ph\n", mt->status_buf);
+		return false;
+	}
+	return true;
+}
+
+static void mt_read_packet(struct apple_mt *mt);
+
+/* Report 0x75: header, finger count at byte 22, 30-byte Z2-style records from byte 32. */
+#define MT_REPORT_TOUCH		0x75
+#define MT_NFINGERS_OFFSET	22
+#define MT_FINGERS_OFFSET	32
+#define MT_TOUCH_STARTED	3
+#define MT_TOUCH_MOVED		4
+#define MT_MAX_SLOTS		10
+#define MT_RING_FRAMES		128
+#define MT_RING_SLOT		514
+
+struct mt_finger {
+	u8 finger;
+	u8 state;
+	__le16 unknown2;
+	__le16 abs_x;
+	__le16 abs_y;
+	__le16 rel_x;
+	__le16 rel_y;
+	__le16 tool_major;
+	__le16 tool_minor;
+	__le16 orientation;
+	__le16 touch_major;
+	__le16 touch_minor;
+	__le16 unused[2];
+	__le16 pressure;
+	__le16 multi;
+} __packed;
+
+static void mt_parse_touches(struct apple_mt *mt, const u8 *msg, size_t len)
+{
+	const struct mt_finger *f = (const void *)(msg + MT_FINGERS_OFFSET);
+	unsigned int i, n;
+
+	if (len < MT_FINGERS_OFFSET)
+		return;
+	n = get_unaligned_le16(msg + MT_NFINGERS_OFFSET);
+	n = min_t(size_t, n, (len - MT_FINGERS_OFFSET) / sizeof(*f));
+	for (i = 0; i < n; i++, f++) {
+		bool down = f->state == MT_TOUCH_STARTED || f->state == MT_TOUCH_MOVED;
+		int slot = input_mt_get_slot_by_key(mt->input, f->finger);
+
+		if (slot < 0)
+			continue;
+		input_mt_slot(mt->input, slot);
+		if (!input_mt_report_slot_state(mt->input, MT_TOOL_FINGER, down))
+			continue;
+		touchscreen_report_pos(mt->input, &mt->props, le16_to_cpu(f->abs_x),
+				       le16_to_cpu(f->abs_y), true);
+		input_report_abs(mt->input, ABS_MT_TOUCH_MAJOR, le16_to_cpu(f->touch_major));
+		input_report_abs(mt->input, ABS_MT_TOUCH_MINOR, le16_to_cpu(f->touch_minor));
+		input_report_abs(mt->input, ABS_MT_ORIENTATION, le16_to_cpu(f->orientation));
+	}
+	input_mt_sync_frame(mt->input);
+	input_sync(mt->input);
+}
+
+static int mt_input_init(struct apple_mt *mt)
+{
+	struct input_dev *input = devm_input_allocate_device(&mt->spi->dev);
+
+	if (!input)
+		return -ENOMEM;
+	input->name = "Apple SPI multitouch";
+	input->phys = "spi-hid-apple-mt/input0";
+	input->id.bustype = BUS_SPI;
+	input->id.vendor = 0x05ac;
+	/* ponytail: ranges from observed frames; override with touchscreen-size-x/y in the DT. */
+	input_set_abs_params(input, ABS_MT_POSITION_X, 0, 0x1fff, 0, 0);
+	input_set_abs_params(input, ABS_MT_POSITION_Y, 0, 0x3fff, 0, 0);
+	input_set_abs_params(input, ABS_MT_TOUCH_MAJOR, 0, 0xffff, 0, 0);
+	input_set_abs_params(input, ABS_MT_TOUCH_MINOR, 0, 0xffff, 0, 0);
+	input_set_abs_params(input, ABS_MT_ORIENTATION, 0, 0xffff, 0, 0);
+	touchscreen_parse_properties(input, true, &mt->props);
+	if (input_mt_init_slots(input, MT_MAX_SLOTS, INPUT_MT_DIRECT))
+		return -ENOMEM;
+	mt->input = input;
+	return input_register_device(input);
+}
+
+static u16 mt_pkt_crc(struct apple_mt *mt, const u8 *buf, bool with_magic)
+{
+	size_t skip = with_magic ? 0 : sizeof(__le32);
+
+	return crc16(0, buf + skip, offsetof(struct mt_packet, crc16) - skip);
+}
+
 static int mt_request(struct apple_mt *mt, u8 target, u8 type, u8 report,
 		      u8 device, u16 resp_len, const u8 *buf, size_t len)
 {
@@ -254,6 +373,7 @@ static int mt_request(struct apple_mt *mt, u8 target, u8 type, u8 report,
 		return err;
 
 	memset(pkt, 0, sizeof(*pkt));
+	pkt->magic = cpu_to_le32(MT_PKT_MAGIC);
 	pkt->flags = MT_WRITE_PACKET;
 	pkt->device = target;
 	pkt->length = cpu_to_le16(sizeof(*hdr) + len + 2);
@@ -267,13 +387,20 @@ static int mt_request(struct apple_mt *mt, u8 target, u8 type, u8 report,
 		memcpy(pkt->data + sizeof(*hdr), buf, len);
 	crc = crc16(0, pkt->data, sizeof(*hdr) + len);
 	put_unaligned_le16(crc, pkt->data + sizeof(*hdr) + len);
-	pkt->crc16 = cpu_to_le16(crc16(0, mt->tx_buf, offsetof(struct mt_packet, crc16)));
+	pkt->crc16 = cpu_to_le16(mt_pkt_crc(mt, mt->tx_buf, mt->crc_with_magic));
 
 	memset(mt->status_buf, 0, MT_STATUS_LEN);
 	err = spi_sync(mt->spi, &mt->tx_msg);
-	if (memcmp(mt->status_buf, mt_status_ok, MT_STATUS_LEN))
-		dev_warn_ratelimited(&mt->spi->dev, "status %4ph\n", mt->status_buf);
+	if (!err && !mt_status(mt)) {
+		mt->crc_with_magic = !mt->crc_with_magic;
+		dev_info(&mt->spi->dev, "trying tx crc with magic = %d\n", mt->crc_with_magic);
+	}
 	mutex_unlock(&mt->tx_lock);
+	/* ponytail: poll for the response instead of trusting the irq line. */
+	if (!err) {
+		usleep_range(2000, 2500);
+		mt_read_packet(mt);
+	}
 	return err ? err : (int)len;
 }
 
@@ -503,6 +630,13 @@ static void mt_process_message(struct apple_mt *mt, u8 *data, size_t length,
 	if (flags != MT_READ_PACKET || hdr->type != 0x10)
 		return;
 	iface = mt_get_iface(mt, device);
+	if (pl[0] == MT_REPORT_TOUCH && mt->input) {
+		u8 *slot = mt->ring + (mt->ring_pos++ % MT_RING_FRAMES) * MT_RING_SLOT;
+
+		put_unaligned_le16(min_t(size_t, pl_len, MT_RING_SLOT - 2), slot);
+		memcpy(slot + 2, pl, min_t(size_t, pl_len, MT_RING_SLOT - 2));
+		mt_parse_touches(mt, pl, pl_len);
+	}
 	if (iface && iface->hid && iface->ready)
 		hid_input_report(iface->hid, HID_INPUT_REPORT, pl, pl_len, 1);
 	else
@@ -547,15 +681,25 @@ static void mt_read_packet(struct apple_mt *mt)
 	size_t length;
 	int err;
 
+	memset(mt->status_buf, 0, MT_STATUS_LEN);
 	err = spi_sync(mt->spi, &mt->rx_msg);
 	if (err) {
 		dev_warn(&mt->spi->dev, "rx failed: %d\n", err);
 		return;
 	}
-	if (crc16(0, mt->rx_buf, offsetof(struct mt_packet, crc16)) != le16_to_cpu(pkt->crc16)) {
+	if (le32_to_cpu(pkt->magic) != MT_PKT_MAGIC) {
+		dev_warn_ratelimited(&mt->spi->dev, "bad packet magic: %16ph\n", mt->rx_buf);
+		return;
+	}
+	if (pkt->flags == MT_IDLE_PACKET) {
+		dev_info_ratelimited(&mt->spi->dev, "idle packet, status %8ph\n", mt->status_buf);
+		return;
+	}
+	if (mt_pkt_crc(mt, mt->rx_buf, false) != le16_to_cpu(pkt->crc16)) {
 		dev_warn_ratelimited(&mt->spi->dev, "packet crc mismatch: %16ph\n", mt->rx_buf);
 		return;
 	}
+	mt_status(mt);
 	length = le16_to_cpu(pkt->length);
 	if (length < sizeof(struct mt_msg_hdr) + 2) {
 		if (length == sizeof(mt_booted) && !memcmp(pkt->data, mt_booted, length)) {
@@ -618,9 +762,18 @@ static int mt_boot(struct apple_mt *mt)
 
 	mt_request(mt, MT_DEV_INFO, 0x20, 0x01, MT_DEV_INFO, 0, NULL, 0);
 	err = wait_event_interruptible_timeout(mt->wait, mt->vendor_id, MT_WAIT);
-	if (err == 0)
-		err = -ENODEV;
-	if (err < 0) {
+	if (err == 0) {
+		struct mt_iface *iface = &mt->ifaces[0];
+
+		dev_info(dev, "no device info, using the built-in interface config\n");
+		mt->vendor_id = 0x05ac;
+		mt->num_devices = 1;
+		strscpy(iface->name, "grape", sizeof(iface->name));
+		memcpy(iface->hid_desc, mt_grape_desc, sizeof(mt_grape_desc));
+		iface->hid_desc_len = sizeof(mt_grape_desc);
+		iface->max_input_report_len = MT_MAX_REPORT;
+		return 0;	/* Linux's HID parser rejects Apple's vendor descriptor; the input device carries touch */
+	} else if (err < 0) {
 		dev_err(dev, "no device info: %d\n", err);
 		goto fail;
 	}
@@ -630,10 +783,14 @@ static int mt_boot(struct apple_mt *mt)
 
 		iface->id = i;
 		iface->mt = mt;
-		mt_request(mt, MT_DEV_INFO, 0x20, 0x02, i, MT_DESC_MAX, NULL, 0);
-		wait_event_interruptible_timeout(mt->wait, iface->max_input_report_len, MT_WAIT);
-		mt_request(mt, MT_DEV_INFO, 0x20, 0x10, i, MT_DESC_MAX, NULL, 0);
-		wait_event_interruptible_timeout(mt->wait, iface->hid_desc_len, MT_WAIT);
+		if (!iface->max_input_report_len) {
+			mt_request(mt, MT_DEV_INFO, 0x20, 0x02, i, MT_DESC_MAX, NULL, 0);
+			wait_event_interruptible_timeout(mt->wait, iface->max_input_report_len, MT_WAIT);
+		}
+		if (!iface->hid_desc_len) {
+			mt_request(mt, MT_DEV_INFO, 0x20, 0x10, i, MT_DESC_MAX, NULL, 0);
+			wait_event_interruptible_timeout(mt->wait, iface->hid_desc_len, MT_WAIT);
+		}
 		if (!iface->hid_desc_len) {
 			dev_warn(dev, "interface %u: no HID descriptor\n", i);
 			continue;
@@ -687,6 +844,8 @@ static int mt_probe(struct spi_device *spi)
 	mt->rx_buf = devm_kzalloc(dev, MT_MAX_REPORT, GFP_KERNEL);
 	mt->tx_buf = devm_kzalloc(dev, MT_PKT_LEN, GFP_KERNEL);
 	mt->status_buf = devm_kzalloc(dev, MT_STATUS_LEN, GFP_KERNEL);
+	mt->status_tx = devm_kzalloc(dev, MT_STATUS_LEN, GFP_KERNEL);
+	mt->rx_tx = devm_kzalloc(dev, MT_PKT_LEN, GFP_KERNEL);
 	mt->report.buf = devm_kzalloc(dev, MT_MAX_REPORT, GFP_KERNEL);
 	if (!mt->rx_buf || !mt->tx_buf || !mt->status_buf || !mt->report.buf)
 		return -ENOMEM;
@@ -697,18 +856,32 @@ static int mt_probe(struct spi_device *spi)
 	mutex_init(&mt->tx_lock);
 	spi_set_drvdata(spi, mt);
 
+	/* The status stage's padding is zero, unlike packets (HSMTransferDevice::handleInterrupt). */
+	memcpy(mt->status_tx + 4, mt_status_ok, 4);
+	/* A read sends a full frame too: padding, a header with flags 0x80 and a crc. */
+	put_unaligned_le32(MT_PKT_MAGIC, mt->rx_tx);
+	mt->rx_tx[4] = MT_IDLE_PACKET;
+	put_unaligned_le16(mt_pkt_crc(mt, mt->rx_tx, false), mt->rx_tx + offsetof(struct mt_packet, crc16));
+	mt->rx_xfer.tx_buf = mt->rx_tx;
 	mt->rx_xfer.rx_buf = mt->rx_buf;
 	mt->rx_xfer.len = MT_PKT_LEN;
-	spi_message_init_with_transfers(&mt->rx_msg, &mt->rx_xfer, 1);
+	mt->rx_xfer.delay.unit = SPI_DELAY_UNIT_USECS;
+	mt->rx_xfer.delay.value = MT_INTER_STAGE_US;
+	mt->rx_status_xfer.tx_buf = mt->status_tx;
+	mt->rx_status_xfer.rx_buf = mt->status_buf;
+	mt->rx_status_xfer.len = MT_STATUS_LEN;
+	spi_message_init(&mt->rx_msg);
+	spi_message_add_tail(&mt->rx_xfer, &mt->rx_msg);
+	spi_message_add_tail(&mt->rx_status_xfer, &mt->rx_msg);
 	mt->tx_xfer.tx_buf = mt->tx_buf;
 	mt->tx_xfer.len = MT_PKT_LEN;
 	mt->tx_xfer.delay.unit = SPI_DELAY_UNIT_USECS;
 	mt->tx_xfer.delay.value = MT_INTER_STAGE_US;
-	mt->status_xfer.rx_buf = mt->status_buf;
-	mt->status_xfer.len = MT_STATUS_LEN;
+	mt->tx_status_xfer = mt->rx_status_xfer;
 	spi_message_init(&mt->tx_msg);
 	spi_message_add_tail(&mt->tx_xfer, &mt->tx_msg);
-	spi_message_add_tail(&mt->status_xfer, &mt->tx_msg);
+	spi_message_add_tail(&mt->tx_status_xfer, &mt->tx_msg);
+	mt->crc_with_magic = false;
 
 	err = device_property_read_string(dev, "firmware-name", &mt->fw_name);
 	if (err)
@@ -720,9 +893,8 @@ static int mt_probe(struct spi_device *spi)
 	 * a re-bind can test other values written through debugfs.
 	 */
 	if (!smc_done) {
-		err = mt_smc_write(dev, SMC_KEY(rBK3), 0x5020001);
-		if (!err)
-			err = mt_smc_write(dev, SMC_KEY(gP00), 0x8000001);
+		/* The LDO (rBK3) is "Always Powered" in the firmware config; iOS only enables the clock. */
+		err = mt_smc_write(dev, SMC_KEY(gP00), 0x8000001);
 		if (err)
 			return dev_err_probe(dev, err, "smc power/clock\n");
 		smc_done = true;
@@ -737,6 +909,18 @@ static int mt_probe(struct spi_device *spi)
 					IRQF_ONESHOT | IRQF_NO_AUTOEN, "apple-mt", mt);
 	if (err)
 		return dev_err_probe(dev, err, "irq\n");
+
+	err = mt_input_init(mt);
+	if (err)
+		return dev_err_probe(dev, err, "input device\n");
+	mt->ring = devm_kzalloc(dev, MT_RING_FRAMES * MT_RING_SLOT, GFP_KERNEL);
+	if (!mt->ring)
+		return -ENOMEM;
+	mt->ring_blob.data = mt->ring;
+	mt->ring_blob.size = MT_RING_FRAMES * MT_RING_SLOT;
+	mt->dbg = debugfs_create_dir("apple-mt", NULL);
+	debugfs_create_blob("frames", 0400, mt->dbg, &mt->ring_blob);
+	debugfs_create_u32("ring_pos", 0400, mt->dbg, &mt->ring_pos);
 
 	usleep_range(5000, 10000);
 	return mt_boot(mt);

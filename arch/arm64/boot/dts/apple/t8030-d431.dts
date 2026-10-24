@@ -16,6 +16,7 @@
 	model = "Apple iPhone 11 Pro Max";
 
 	aliases {
+		touchbar0 = &touchscreen;	/* m1n1 copies the ADT multi-touch-calibration here */
 		wifi0 = &wifi0;
 	};
 
@@ -63,7 +64,7 @@
 	cs-gpios = <&pinctrl_ap 95 GPIO_ACTIVE_LOW>;
 	status = "okay";
 
-	touchscreen@0 {
+	touchscreen: touchscreen@0 {
 		compatible = "apple,d431-touchscreen";
 		reg = <0>;
 		spi-max-frequency = <8000000>;
