@@ -545,6 +545,22 @@ int lpi_pinctrl_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
+	/*
+	 * The core/audio clocks are provided by the ADSP (through q6prm over
+	 * GLINK). If the ADSP has not booted yet, the clock enable request
+	 * times out instead of deferring. Resume once here so the timeout can
+	 * be turned into a probe deferral, instead of failing later on the
+	 * first register access and leaving the whole sound card stuck in
+	 * deferred probe.
+	 */
+	ret = pm_runtime_resume_and_get(dev);
+	if (ret) {
+		if (ret == -ETIMEDOUT)
+			ret = -EPROBE_DEFER;
+		return dev_err_probe(dev, ret, "Can't enable clocks\n");
+	}
+	pm_runtime_put_autosuspend(dev);
+
 	pctrl->desc.pctlops = &lpi_gpio_pinctrl_ops;
 	pctrl->desc.pmxops = &lpi_gpio_pinmux_ops;
 	pctrl->desc.confops = &lpi_gpio_pinconf_ops;
