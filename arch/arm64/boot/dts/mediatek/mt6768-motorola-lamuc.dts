@@ -900,6 +900,20 @@
 	};
 };
 
+&btif {
+	status = "okay";
+};
+
+&connsys {
+	memory-region = <&consys_mem>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&consys_pins>;
+	vcn18-supply = <&mt6358_vcn18_reg>;
+	vcn28-supply = <&mt6358_vcn28_reg>;
+	vcn33-supply = <&mt6358_vcn33_reg>;
+	status = "okay";
+};
+
 &{/soc} {
 	/* vendor eccci (modem/ in the g17 repo); MD1 power is done there */
 	modem@10014000 {
