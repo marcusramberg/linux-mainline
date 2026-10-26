@@ -11,6 +11,7 @@
 #include <dt-bindings/pinctrl/mediatek,mt6768-pinfunc.h>
 #include <dt-bindings/clock/mediatek,mt6768-clk.h>
 #include <dt-bindings/power/mt6768-power.h>
+#include <dt-bindings/reset/mt8183-resets.h>
 #include <dt-bindings/gce/mediatek,mt6768-gce.h>
 #include <dt-bindings/memory/mt6768-larb-port.h>
 
@@ -1469,6 +1470,21 @@
 			status = "disabled";
 		};
 
+		btif: serial@1100c000 {
+			compatible = "mediatek,mt6768-btif", "mediatek,mtk-btif";
+			reg = <0 0x1100c000 0 0x1000>;
+			interrupts = <GIC_SPI 133 IRQ_TYPE_LEVEL_LOW>;
+			clocks = <&infracfg_ao CLK_INFRA_BTIF>;
+			reg-shift = <2>;
+			reg-io-width = <4>;
+			status = "disabled";
+
+			bluetooth {
+				compatible = "mediatek,mt6768-bluetooth";
+				mediatek,connsys = <&connsys>;
+			};
+		};
+
 		usb2: usb@11200000 {
 			compatible = "mediatek,mt6768-musb", "mediatek,mtk-musb";
 			reg = <0 0x11200000 0 0x1000>;
@@ -1990,6 +2006,20 @@
 			power-domains = <&spm MT6768_POWER_DOMAIN_VENC>;
 			clocks = <&vencsys CLK_VENC_SET2_JPGENC>;
 			clock-names = "jpgenc";
+		};
+
+		connsys: connectivity@18000000 {
+			compatible = "mediatek,mt6768-connsys";
+			reg = <0 0x18000000 0 0x100000>;
+			interrupts = <GIC_SPI 284 IRQ_TYPE_LEVEL_LOW>,
+				     <GIC_SPI 287 IRQ_TYPE_EDGE_FALLING>;
+			interrupt-names = "wakeup", "sw";
+			mediatek,infracfg = <&infracfg_ao>;
+			power-domains = <&spm MT6768_POWER_DOMAIN_CONN>;
+			resets = <&toprgu MT8183_TOPRGU_CONN_MCU_SW_RST>,
+				 <&toprgu MT8183_TOPRGU_CONN_SW_RST>;
+			reset-names = "cpu", "sw";
+			status = "disabled";
 		};
 
 		camsys: clock-controller@1a000000  {
