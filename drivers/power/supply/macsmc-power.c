@@ -84,6 +84,7 @@ struct macsmc_power {
 
 	/* Supported feature flags based on SMC key presence */
 	bool has_bmdn; /* Battery Model Name */
+	bool b0rm_le;
 	bool has_chwa; /* Charge limit (Modern firmware) */
 	bool has_chls; /* Charge limit (Older firmware) */
 	bool has_ch0i; /* Force discharge (Older firmware) */
@@ -308,6 +309,12 @@ static int macsmc_battery_get_capacity_level(struct macsmc_power *power)
 		return POWER_SUPPLY_CAPACITY_LEVEL_NORMAL;
 }
 
+/* Macs pass B0RM through big endian from the TI gauge; the A13 SMC does not. */
+static int macsmc_b0rm(struct macsmc_power *power, u16 raw)
+{
+	return power->b0rm_le ? (s16)raw : (s16)swab16(raw);
+}
+
 static int macsmc_battery_get_property(struct power_supply *psy,
 				       enum power_supply_property psp,
 				       union power_supply_propval *val)
@@ -412,8 +419,7 @@ static int macsmc_battery_get_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_NOW:
 		ret = apple_smc_read_u16(power->smc, SMC_KEY(B0RM), &vu16);
-		/* B0RM is Big Endian, likely pass through from TI gas gauge */
-		val->intval = (s16)swab16(vu16) * 1000;
+		val->intval = macsmc_b0rm(power, vu16) * 1000;
 		break;
 	case POWER_SUPPLY_PROP_ENERGY_FULL_DESIGN:
 		ret = apple_smc_read_u16(power->smc, SMC_KEY(B0DC), &vu16);
@@ -425,8 +431,7 @@ static int macsmc_battery_get_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_ENERGY_NOW:
 		ret = apple_smc_read_u16(power->smc, SMC_KEY(B0RM), &vu16);
-		/* B0RM is Big Endian, likely pass through from TI gas gauge */
-		val->intval = (s16)swab16(vu16) * power->nominal_voltage_mv;
+		val->intval = macsmc_b0rm(power, vu16) * power->nominal_voltage_mv;
 		break;
 	case POWER_SUPPLY_PROP_TEMP:
 		ret = apple_smc_read_u16(power->smc, SMC_KEY(B0AT), &vu16);
@@ -812,6 +817,7 @@ static int macsmc_power_probe(struct platform_device *pdev)
 		}
 
 		apple_smc_read_u8(power->smc, SMC_KEY(BNCB), &power->num_cells);
+		power->b0rm_le = of_device_is_compatible(dev->parent->of_node, "apple,t8030-smc");
 		power->nominal_voltage_mv = MACSMC_NOMINAL_CELL_VOLTAGE_MV * power->num_cells;
 
 		/* Enable critical shutdown notifications by reading status once */
