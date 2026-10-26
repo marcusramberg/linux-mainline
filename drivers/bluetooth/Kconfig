@@ -398,6 +398,21 @@ config BT_MTKSDIO
 	  Say Y here to compile support for MediaTek Bluetooth SDIO devices
 	  into the kernel or say M to compile it as module (btmtksdio).
 
+config BT_MTKCONNSYS
+	tristate "MediaTek CONNSYS Bluetooth (MT6768)"
+	depends on ARCH_MEDIATEK || COMPILE_TEST
+	depends on BT_HCIUART
+	depends on SERIAL_DEV_BUS
+	depends on POWER_SEQUENCING
+	select BT_HCIUART_H4
+	help
+	  Bluetooth of the connectivity subsystem in MediaTek SoCs such as
+	  MT6768 (Helio G80/G85), on BTIF. It needs the CONNSYS power
+	  sequencer (POWER_SEQUENCING_MTK_CONNSYS).
+
+	  Say Y here to compile support for it into the kernel or say M to
+	  compile it as module (btmtkconnsys).
+
 config BT_MTKUART
 	tristate "MediaTek HCI UART driver"
 	depends on BT_HCIUART

@@ -16471,6 +16471,7 @@ L:	linux-mediatek@lists.infradead.org (moderated for non-subscribers)
 S:	Maintained
 F:	Documentation/devicetree/bindings/net/bluetooth/mediatek,mt6768-bluetooth.yaml
 F:	Documentation/devicetree/bindings/soc/mediatek/mediatek,mt6768-connsys.yaml
+F:	drivers/bluetooth/btmtkconnsys.c
 F:	drivers/power/sequencing/pwrseq-mtk-connsys.c
 
 MEDIATEK DMA DRIVER
