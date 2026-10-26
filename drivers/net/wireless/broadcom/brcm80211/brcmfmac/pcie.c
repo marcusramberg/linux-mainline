@@ -219,6 +219,7 @@ static const struct brcmf_firmware_mapping brcmf_pcie_fwnames[] = {
 #define BRCMF_PCIE_SHARED_VERSION_MASK		0x00FF
 #define BRCMF_PCIE_SHARED_DMA_INDEX		0x10000
 #define BRCMF_PCIE_SHARED_DMA_2B_IDX		0x100000
+#define BRCMF_PCIE_SHARED_USE_MAILBOX		0x2000000
 #define BRCMF_PCIE_SHARED_HOSTRDY_DB1		0x10000000
 
 #define BRCMF_PCIE_FLAGS_HTOD_SPLIT		0x4000
@@ -812,7 +813,7 @@ static void brcmf_pcie_handle_mb_data(struct brcmf_pciedev_info *devinfo)
 
 	brcmf_pcie_write_tcm32(devinfo, addr, 0);
 
-	brcmf_dbg(PCIE, "D2H_MB_DATA: 0x%04x\n", dtoh_mb_data);
+	dev_dbg(&devinfo->pdev->dev, "D2H_MB_DATA: 0x%04x\n", dtoh_mb_data);
 	if (dtoh_mb_data & BRCMF_D2H_DEV_DS_ENTER_REQ)  {
 		brcmf_dbg(PCIE, "D2H_MB_DATA: DEEP SLEEP REQ\n");
 		brcmf_pcie_send_mb_data(devinfo, BRCMF_H2D_HOST_DS_ACK);
@@ -1627,7 +1628,8 @@ brcmf_pcie_init_share_ram_info(struct brcmf_pciedev_info *devinfo,
 
 	shared->flags = brcmf_pcie_read_tcm32(devinfo, sharedram_addr);
 	shared->version = (u8)(shared->flags & BRCMF_PCIE_SHARED_VERSION_MASK);
-	brcmf_dbg(PCIE, "PCIe protocol version %d\n", shared->version);
+	dev_info(&devinfo->pdev->dev, "PCIe protocol version %d, flags %#x\n",
+		 shared->version, shared->flags);
 	if ((shared->version > BRCMF_PCIE_MAX_SHARED_VERSION) ||
 	    (shared->version < BRCMF_PCIE_MIN_SHARED_VERSION)) {
 		brcmf_err(bus, "Unsupported PCIE version %d\n",
@@ -2623,6 +2625,14 @@ brcmf_pcie_remove(struct pci_dev *pdev)
 #ifdef CONFIG_PM
 
 
+static int brcmf_pcie_host_mbdata(struct brcmf_pciedev_info *devinfo, u32 data)
+{
+	if (devinfo->shared.version >= 6 &&
+	    !(devinfo->shared.flags & BRCMF_PCIE_SHARED_USE_MAILBOX))
+		return brcmf_proto_msgbuf_mbdata(&devinfo->pdev->dev, data);
+	return brcmf_pcie_send_mb_data(devinfo, data);
+}
+
 static int brcmf_pcie_pm_enter_D3(struct device *dev)
 {
 	struct brcmf_pciedev_info *devinfo;
@@ -2637,12 +2647,14 @@ static int brcmf_pcie_pm_enter_D3(struct device *dev)
 	brcmf_bus_change_state(bus, BRCMF_BUS_DOWN);
 
 	devinfo->mbdata_completed = false;
-	brcmf_pcie_send_mb_data(devinfo, BRCMF_H2D_HOST_D3_INFORM);
+	brcmf_pcie_host_mbdata(devinfo, BRCMF_H2D_HOST_D3_INFORM);
 
 	wait_event_timeout(devinfo->mbdata_resp_wait, devinfo->mbdata_completed,
 			   BRCMF_PCIE_MBDATA_TIMEOUT);
 	if (!devinfo->mbdata_completed) {
 		brcmf_err(bus, "Timeout on response for entering D3 substate\n");
+		/* No resume follows a failed suspend; undo a late D3 entry. */
+		brcmf_pcie_host_mbdata(devinfo, BRCMF_H2D_HOST_D0_INFORM);
 		brcmf_bus_change_state(bus, BRCMF_BUS_UP);
 		return -EIO;
 	}
@@ -2669,10 +2681,14 @@ static int brcmf_pcie_pm_leave_D3(struct device *dev)
 	/* Check if device is still up and running, if so we are ready */
 	if (brcmf_pcie_read_reg32(devinfo, devinfo->reginfo->intmask) != 0) {
 		brcmf_dbg(PCIE, "Try to wakeup device....\n");
-		if (brcmf_pcie_send_mb_data(devinfo, BRCMF_H2D_HOST_D0_INFORM))
-			goto cleanup;
-		brcmf_dbg(PCIE, "Hot resume, continue....\n");
+		/* The control ring doorbell needs STATE_UP. */
 		devinfo->state = BRCMFMAC_PCIE_STATE_UP;
+		err = brcmf_pcie_host_mbdata(devinfo, BRCMF_H2D_HOST_D0_INFORM);
+		if (err) {
+			devinfo->state = BRCMFMAC_PCIE_STATE_DOWN;
+			goto cleanup;
+		}
+		brcmf_dbg(PCIE, "Hot resume, continue....\n");
 		brcmf_pcie_select_core(devinfo, BCMA_CORE_PCIE2);
 		brcmf_bus_change_state(bus, BRCMF_BUS_UP);
 		brcmf_pcie_intr_enable(devinfo);

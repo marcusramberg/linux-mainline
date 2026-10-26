@@ -47,6 +47,7 @@
 #define MSGBUF_TYPE_RX_CMPLT			0x12
 #define MSGBUF_TYPE_LPBK_DMAXFER		0x13
 #define MSGBUF_TYPE_LPBK_DMAXFER_CMPLT		0x14
+#define MSGBUF_TYPE_H2D_MAILBOX_DATA		0x23
 
 #define NR_TX_PKTIDS				2048
 #define NR_RX_PKTIDS				1024
@@ -124,6 +125,12 @@ struct msgbuf_rx_ioctl_resp_or_event {
 struct msgbuf_completion_hdr {
 	__le16				status;
 	__le16				flow_ring_id;
+};
+
+struct msgbuf_h2d_mailbox_data {
+	struct msgbuf_common_hdr	msg;
+	__le32				data;
+	__le32				rsvd0[7];
 };
 
 /* Data struct for the MSGBUF_TYPE_GEN_STATUS */
@@ -1363,6 +1370,34 @@ again:
 
 	if (commonring->r_ptr == 0)
 		goto again;
+}
+
+
+/*
+ * Shared rev 6+ firmware takes host mailbox data on the control ring; its
+ * answers still arrive in the TCM mailbox.
+ */
+int brcmf_proto_msgbuf_mbdata(struct device *dev, u32 data)
+{
+	struct brcmf_bus *bus_if = dev_get_drvdata(dev);
+	struct brcmf_msgbuf *msgbuf = bus_if->drvr->proto->pd;
+	struct brcmf_commonring *commonring;
+	struct msgbuf_h2d_mailbox_data *req;
+	int err;
+
+	commonring = msgbuf->commonrings[BRCMF_H2D_MSGRING_CONTROL_SUBMIT];
+	brcmf_commonring_lock(commonring);
+	req = brcmf_commonring_reserve_for_write(commonring);
+	if (!req) {
+		brcmf_commonring_unlock(commonring);
+		return -ENOMEM;
+	}
+	memset(req, 0, sizeof(*req));
+	req->msg.msgtype = MSGBUF_TYPE_H2D_MAILBOX_DATA;
+	req->data = cpu_to_le32(data);
+	err = brcmf_commonring_write_complete(commonring);
+	brcmf_commonring_unlock(commonring);
+	return err;
 }
 
 
