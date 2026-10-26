@@ -35,6 +35,17 @@ config POWER_SEQUENCING_TH1520_GPU
 	  GPU. This driver handles the complex clock and reset sequence
 	  required to power on the Imagination BXM GPU on this platform.
 
+config POWER_SEQUENCING_MTK_CONNSYS
+	tristate "MediaTek CONNSYS power sequencing driver"
+	depends on ARCH_MEDIATEK || COMPILE_TEST
+	depends on OF && PM
+	select MFD_SYSCON
+	help
+	  Say Y here to enable the power sequencing driver for the
+	  connectivity subsystem (CONNSYS) of MediaTek SoCs such as MT6768.
+	  It powers the subsystem up and boots its MCU, which Bluetooth and
+	  Wi-Fi share.
+
 config POWER_SEQUENCING_PCIE_M2
 	tristate "PCIe M.2 connector power sequencing driver"
 	depends on OF
