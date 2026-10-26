@@ -265,7 +265,8 @@ static const struct serial8250_config uart_config[] = {
 	[PORT_MTK_BTIF] = {
 		.name		= "MediaTek BTIF",
 		.fifo_size	= 16,
-		.tx_loadsz	= 16,
+		/* THRE means up to TRI_LVL[3:0] bytes still queued, 10 on MT6768 */
+		.tx_loadsz	= 6,
 		.fcr		= UART_FCR_ENABLE_FIFO |
 				  UART_FCR_CLEAR_RCVR | UART_FCR_CLEAR_XMIT,
 		.flags		= UART_CAP_FIFO,
