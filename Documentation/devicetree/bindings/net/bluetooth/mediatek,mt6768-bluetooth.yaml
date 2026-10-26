@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/net/bluetooth/mediatek,mt6768-bluetooth.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: MediaTek MT6768 CONNSYS Bluetooth
+
+maintainers:
+  - Marcus Ramberg <marcus@means.no>
+
+description:
+  Bluetooth of the MT6768 connectivity subsystem (CONNSYS), reached over
+  BTIF, so a child of the BTIF serial node. CONNSYS itself, whose MCU
+  Bluetooth shares with Wi-Fi, GPS and FM, is described by
+  Documentation/devicetree/bindings/soc/mediatek/mediatek,mt6768-connsys.yaml.
+
+allOf:
+  - $ref: bluetooth-controller.yaml#
+
+properties:
+  compatible:
+    const: mediatek,mt6768-bluetooth
+
+  mediatek,connsys:
+    $ref: /schemas/types.yaml#/definitions/phandle
+    description: The CONNSYS node.
+
+required:
+  - compatible
+  - mediatek,connsys
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    serial {
+        bluetooth {
+            compatible = "mediatek,mt6768-bluetooth";
+            mediatek,connsys = <&connsys>;
+        };
+    };

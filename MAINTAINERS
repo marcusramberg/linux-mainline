@@ -16466,8 +16466,10 @@ F:	drivers/media/rc/mtk-cir.c
 
 MEDIATEK CONNSYS DRIVERS
 M:	Marcus Ramberg <marcus@means.no>
+L:	linux-bluetooth@vger.kernel.org
 L:	linux-mediatek@lists.infradead.org (moderated for non-subscribers)
 S:	Maintained
+F:	Documentation/devicetree/bindings/net/bluetooth/mediatek,mt6768-bluetooth.yaml
 F:	Documentation/devicetree/bindings/soc/mediatek/mediatek,mt6768-connsys.yaml
 
 MEDIATEK DMA DRIVER
