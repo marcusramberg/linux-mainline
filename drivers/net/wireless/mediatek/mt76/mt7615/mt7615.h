@@ -40,6 +40,11 @@
 #define MT7615_ROM_PATCH		"mediatek/mt7615_rom_patch.bin"
 
 #define MT7622_FIRMWARE_N9		"mediatek/mt7622_n9.bin"
+#define MT6768_FIRMWARE_N9		"mediatek/WIFI_RAM_CODE_soc1_0_1a_1.bin"
+#define MT6768_ROM_PATCH		"mediatek/soc1_0_patch_mcu_1a_1_hdr.bin"
+/* per-unit calibration and MAC, from the nvdata partition */
+#define MT6768_NVRAM			"mediatek/mt6768_wifi_nvram.bin"
+#define MT6768_NVRAM_SIZE		2048
 #define MT7622_ROM_PATCH		"mediatek/mt7622_rom_patch.bin"
 
 #define MT7615_FIRMWARE_V1		1
@@ -137,12 +142,15 @@ struct mt7615_sta {
 	u8 n_rates;
 
 	u8 rate_probe;
+
+	bool assoc;
 };
 
 struct mt7615_vif {
 	struct mt76_vif_link mt76; /* must be first */
 	struct mt7615_sta sta;
 	bool sta_added;
+	struct ieee80211_tx_queue_params wmm[IEEE80211_NUM_ACS];
 };
 
 struct mib_stats {
@@ -286,6 +294,7 @@ struct mt7615_dev {
 
 	struct mt76_connac_pm pm;
 	struct mt76_connac_coredump coredump;
+	struct work_struct dbg_sleepy_work;
 };
 
 enum tx_pkt_queue_idx {
@@ -353,9 +362,11 @@ extern struct ieee80211_rate mt7615_rates[12];
 extern const struct ieee80211_ops mt7615_ops;
 extern const u32 mt7615e_reg_map[__MT_BASE_MAX];
 extern const u32 mt7663e_reg_map[__MT_BASE_MAX];
+extern const u32 mt6768_reg_map[__MT_BASE_MAX];
 extern const u32 mt7663_usb_sdio_reg_map[__MT_BASE_MAX];
 extern struct pci_driver mt7615_pci_driver;
 extern struct platform_driver mt7622_wmac_driver;
+extern struct platform_driver mt6768_wmac_driver;
 extern const struct mt76_testmode_ops mt7615_testmode_ops;
 
 #ifdef CONFIG_MT7622_WMAC
@@ -368,10 +379,19 @@ static inline int mt7622_wmac_init(struct mt7615_dev *dev)
 #endif
 
 int mt7615_thermal_init(struct mt7615_dev *dev);
+void mt6768_init_ops(struct ieee80211_ops *ops);
+void mt6768_dbg_sleepy_work(struct work_struct *work);
+int mt6768_mcu_set_key(struct mt7615_dev *dev, struct ieee80211_vif *vif,
+		       struct mt76_wcid *wcid, struct ieee80211_key_conf *key,
+		       bool add);
+int mt6768_mcu_set_join_channel(struct mt7615_phy *phy,
+				struct ieee80211_vif *vif, bool request);
+int mt6768_mcu_set_wmm(struct mt7615_dev *dev, struct ieee80211_vif *vif,
+		       const struct ieee80211_tx_queue_params *params);
+int mt6768_mcu_set_domain(struct mt7615_phy *phy);
+int mt6768_mcu_init_settings(struct mt7615_dev *dev);
 int mt7615_mmio_probe(struct device *pdev, void __iomem *mem_base,
-		      int irq, const u32 *map);
-u32 mt7615_reg_map(struct mt7615_dev *dev, u32 addr);
-
+		      int irq, const u32 *map, u16 chip);
 u32 mt7615_reg_map(struct mt7615_dev *dev, u32 addr);
 int mt7615_led_set_blink(struct led_classdev *led_cdev,
 			 unsigned long *delay_on,
@@ -414,6 +434,9 @@ static inline bool mt7615_firmware_offload(struct mt7615_dev *dev)
 
 static inline u16 mt7615_wtbl_size(struct mt7615_dev *dev)
 {
+	/* the last entry is its firmware's default for TX */
+	if (is_mt6768(&dev->mt76))
+		return MT7663_WTBL_SIZE - 1;
 	if (is_mt7663(&dev->mt76) && mt7615_firmware_offload(dev))
 		return MT7663_WTBL_SIZE;
 	else
@@ -468,6 +491,8 @@ void mt7615_mac_cca_stats_reset(struct mt7615_phy *phy);
 void mt7615_mac_set_scs(struct mt7615_phy *phy, bool enable);
 void mt7615_mac_enable_nf(struct mt7615_dev *dev, bool ext_phy);
 void mt7615_mac_sta_poll(struct mt7615_dev *dev);
+void mt6768_tx_mgmt(struct mt7615_dev *dev, struct mt76_wcid *wcid,
+		    struct ieee80211_vif *vif, struct sk_buff *skb);
 int mt7615_mac_write_txwi(struct mt7615_dev *dev, __le32 *txwi,
 			  struct sk_buff *skb, struct mt76_wcid *wcid,
 			  struct ieee80211_sta *sta, int pid,

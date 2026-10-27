@@ -77,6 +77,9 @@ int mt76_connac_mcu_init_download(struct mt76_dev *dev, u32 addr, u32 len,
 }
 EXPORT_SYMBOL_GPL(mt76_connac_mcu_init_download);
 
+static int dbg_dom;
+module_param(dbg_dom, int, 0644);
+
 int mt76_connac_mcu_set_channel_domain(struct mt76_phy *phy)
 {
 	int len, i, n_max_channels, n_2ch = 0, n_5ch = 0, n_6ch = 0;
@@ -109,6 +112,9 @@ int mt76_connac_mcu_set_channel_domain(struct mt76_phy *phy)
 	struct ieee80211_channel *chan;
 	struct sk_buff *skb;
 
+	if (dbg_dom & 8)
+		return 0;
+
 	n_max_channels = phy->sband_2g.sband.n_channels +
 			 phy->sband_5g.sband.n_channels +
 			 phy->sband_6g.sband.n_channels;
@@ -126,7 +132,8 @@ int mt76_connac_mcu_set_channel_domain(struct mt76_phy *phy)
 			continue;
 
 		channel.hw_value = cpu_to_le16(chan->hw_value);
-		channel.flags = cpu_to_le32(chan->flags);
+		channel.flags = cpu_to_le32(chan->flags &
+					    (dbg_dom & 4 ? GENMASK(12, 0) : ~0));
 		channel.pad = 0;
 
 		skb_put_data(skb, &channel, sizeof(channel));
@@ -136,9 +143,12 @@ int mt76_connac_mcu_set_channel_domain(struct mt76_phy *phy)
 		chan = &phy->sband_5g.sband.channels[i];
 		if (chan->flags & IEEE80211_CHAN_DISABLED)
 			continue;
+		if (dbg_dom & 2)
+			continue;
 
 		channel.hw_value = cpu_to_le16(chan->hw_value);
-		channel.flags = cpu_to_le32(chan->flags);
+		channel.flags = cpu_to_le32(chan->flags &
+					    (dbg_dom & 4 ? GENMASK(12, 0) : ~0));
 		channel.pad = 0;
 
 		skb_put_data(skb, &channel, sizeof(channel));
@@ -150,7 +160,8 @@ int mt76_connac_mcu_set_channel_domain(struct mt76_phy *phy)
 			continue;
 
 		channel.hw_value = cpu_to_le16(chan->hw_value);
-		channel.flags = cpu_to_le32(chan->flags);
+		channel.flags = cpu_to_le32(chan->flags &
+					    (dbg_dom & 4 ? GENMASK(12, 0) : ~0));
 		channel.pad = 0;
 
 		skb_put_data(skb, &channel, sizeof(channel));
@@ -163,6 +174,12 @@ int mt76_connac_mcu_set_channel_domain(struct mt76_phy *phy)
 	hdr.n_5ch = n_5ch;
 	hdr.n_6ch = n_6ch;
 
+	if (dbg_dom & 1)
+		hdr.bw_6g = 0;
+	print_hex_dump(KERN_INFO, "DBG dom ", DUMP_PREFIX_OFFSET, 16, 1,
+		       &hdr, sizeof(hdr), false);
+	print_hex_dump(KERN_INFO, "DBG ch ", DUMP_PREFIX_OFFSET, 8, 1,
+		       skb->data, skb->len, false);
 	memcpy(__skb_push(skb, sizeof(hdr)), &hdr, sizeof(hdr));
 
 	return mt76_mcu_skb_send_msg(dev, skb, MCU_CE_CMD(SET_CHAN_DOMAIN),

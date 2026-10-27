@@ -51,6 +51,20 @@ mt7615_init_tx_queues(struct mt7615_dev *dev)
 	if (ret)
 		return ret;
 
+	/* one data ring (0): there is no ring 4 or 5 for VO and MGMT */
+	if (is_mt6768(&dev->mt76)) {
+		ret = mt76_connac_init_tx_queues(&dev->mphy, MT7622_TXQ_AC0,
+						 MT7615_TX_RING_SIZE,
+						 MT_TX_RING_BASE, NULL, 0);
+		if (ret)
+			return ret;
+
+		return mt76_init_mcu_queue(&dev->mt76, MT_MCUQ_WM,
+					   MT7622_TXQ_MCU,
+					   MT7615_TX_MCU_RING_SIZE,
+					   MT_TX_RING_BASE);
+	}
+
 	if (!is_mt7615(&dev->mt76))
 		return mt7622_init_tx_queues_multi(dev);
 
@@ -198,6 +212,25 @@ static void mt7663_dma_sched_init(struct mt7615_dev *dev)
 	mt76_wr(dev, MT_DMA_SHDL(MT_DMASHDL_SCHED_SET1), 0xedcba987);
 }
 
+/* vendor values; the firmware flags MT7663's as a DMASHDL error */
+static void mt6768_dma_sched_init(struct mt7615_dev *dev)
+{
+	int i;
+
+	mt76_rmw(dev, MT_DMA_SHDL(MT_DMASHDL_PKT_MAX_SIZE),
+		 MT_DMASHDL_PKT_MAX_SIZE_PLE | MT_DMASHDL_PKT_MAX_SIZE_PSE,
+		 FIELD_PREP(MT_DMASHDL_PKT_MAX_SIZE_PLE, 1) |
+		 FIELD_PREP(MT_DMASHDL_PKT_MAX_SIZE_PSE, 0x18));
+
+	/* group 0 only; Q_MAP keeps its reset value */
+	mt76_wr(dev, MT_DMA_SHDL(MT_DMASHDL_REFILL), 0xfffe0000);
+	mt76_wr(dev, MT_DMA_SHDL(MT_DMASHDL_GROUP_QUOTA(0)),
+		FIELD_PREP(MT_DMASHDL_GROUP_QUOTA_MIN, 0x3) |
+		FIELD_PREP(MT_DMASHDL_GROUP_QUOTA_MAX, 0xfff));
+	for (i = 1; i < 15; i++)
+		mt76_wr(dev, MT_DMA_SHDL(MT_DMASHDL_GROUP_QUOTA(i)), 0);
+}
+
 void mt7615_dma_start(struct mt7615_dev *dev)
 {
 	/* start dma engine */
@@ -210,7 +243,10 @@ void mt7615_dma_start(struct mt7615_dev *dev)
 		mt7622_dma_sched_init(dev);
 
 	if (is_mt7663(&dev->mt76)) {
-		mt7663_dma_sched_init(dev);
+		if (is_mt6768(&dev->mt76))
+			mt6768_dma_sched_init(dev);
+		else
+			mt7663_dma_sched_init(dev);
 
 		mt76_wr(dev, MT_MCU2HOST_INT_ENABLE, MT7663_MCU_CMD_ERROR_MASK);
 	}
@@ -240,7 +276,14 @@ int mt7615_dma_init(struct mt7615_dev *dev)
 		       MT_WPDMA_GLO_CFG_DMA_BURST_SIZE, 0x3);
 
 	mt76_rmw_field(dev, MT_WPDMA_GLO_CFG,
-		       MT_WPDMA_GLO_CFG_MULTI_DMA_EN, 0x3);
+		       MT_WPDMA_GLO_CFG_MULTI_DMA_EN,
+		       is_mt6768(&dev->mt76) ? 0x2 : 0x3);
+
+	/* the vendor values; with clock gating PDMA stops fetching commands */
+	if (is_mt6768(&dev->mt76)) {
+		mt76_set(dev, MT_WPDMA_GLO_CFG, BIT(30));
+		mt76_set(dev, MT_HIF(0x160), BIT(4));
+	}
 
 	if (is_mt7615(&dev->mt76)) {
 		mt76_set(dev, MT_WPDMA_GLO_CFG,

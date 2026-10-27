@@ -109,6 +109,9 @@ void mt7615_mac_reset_counters(struct mt7615_phy *phy)
 	struct mt7615_dev *dev = phy->dev;
 	int i;
 
+	if (is_mt6768(&dev->mt76))
+		return;
+
 	for (i = 0; i < 4; i++) {
 		mt76_rr(dev, MT_TX_AGG_CNT(0, i));
 		mt76_rr(dev, MT_TX_AGG_CNT(1, i));
@@ -144,7 +147,8 @@ void mt7615_mac_set_timing(struct mt7615_phy *phy)
 	int sifs, offset;
 	bool is_5ghz = phy->mt76->chandef.chan->band == NL80211_BAND_5GHZ;
 
-	if (!test_bit(MT76_STATE_RUNNING, &phy->mt76->state))
+	if (!test_bit(MT76_STATE_RUNNING, &phy->mt76->state) ||
+	    is_mt6768(&dev->mt76))
 		return;
 
 	if (is_5ghz)
@@ -327,6 +331,51 @@ static int mt7615_reverse_frag0_hdr_trans(struct sk_buff *skb, u16 hdr_gap)
 	return 0;
 }
 
+/*
+ * The firmware translates all unicast data to 802.3, but mac80211 only takes
+ * 802.3 frames once the station is authorized: rebuild the 802.11 header.
+ */
+static int mt6768_reverse_hdr_trans(struct mt7615_dev *dev, struct sk_buff *skb,
+				    u8 idx)
+{
+	struct mt76_wcid *wcid = mt76_wcid_ptr(dev, idx);
+	struct ieee80211_hdr hdr = {};
+	struct mt7615_vif *mvif;
+	struct ethhdr eth;
+	const u8 *ta;
+
+	if (!wcid || skb->len < sizeof(eth))
+		return -EINVAL;
+
+	if (wcid->sta) {
+		ta = wcid_to_sta(wcid)->addr;
+	} else {
+		/* a BSS's broadcast entry: the frame came from its AP */
+		mvif = container_of(wcid, struct mt7615_vif, sta.wcid);
+		ta = container_of((void *)mvif, struct ieee80211_vif,
+				  drv_priv)->bss_conf.bssid;
+	}
+
+	memcpy(&eth, skb->data, sizeof(eth));
+	skb_pull(skb, sizeof(eth));
+
+	if (ntohs(eth.h_proto) >= ETH_P_802_3_MIN) {
+		memcpy(skb_push(skb, 2), &eth.h_proto, 2);
+		memcpy(skb_push(skb, sizeof(rfc1042_header)), rfc1042_header,
+		       sizeof(rfc1042_header));
+	}
+
+	hdr.frame_control = cpu_to_le16(IEEE80211_FTYPE_DATA |
+					IEEE80211_STYPE_DATA |
+					IEEE80211_FCTL_FROMDS);
+	ether_addr_copy(hdr.addr1, eth.h_dest);
+	ether_addr_copy(hdr.addr2, ta);
+	ether_addr_copy(hdr.addr3, eth.h_source);
+	memcpy(skb_push(skb, 24), &hdr, 24);
+
+	return 0;
+}
+
 static int mt7615_mac_fill_rx(struct mt7615_dev *dev, struct sk_buff *skb)
 {
 	struct mt76_rx_status *status = (struct mt76_rx_status *)skb->cb;
@@ -366,11 +415,11 @@ static int mt7615_mac_fill_rx(struct mt7615_dev *dev, struct sk_buff *skb)
 		phy_idx = -1;
 
 	if (rxd2 & MT_RXD2_NORMAL_AMSDU_ERR)
-		return -EINVAL;
+		return -__LINE__;
 
 	hdr_trans = rxd1 & MT_RXD1_NORMAL_HDR_TRANS;
 	if (hdr_trans && (rxd2 & MT_RXD2_NORMAL_CM))
-		return -EINVAL;
+		return -__LINE__;
 
 	/* ICV error or CCMP/BIP/WPI MIC error */
 	if (rxd2 & MT_RXD2_NORMAL_ICV_ERR)
@@ -407,7 +456,7 @@ static int mt7615_mac_fill_rx(struct mt7615_dev *dev, struct sk_buff *skb)
 	remove_pad = rxd1 & MT_RXD1_NORMAL_HDR_OFFSET;
 
 	if (rxd2 & MT_RXD2_NORMAL_MAX_LEN_ERROR)
-		return -EINVAL;
+		return -__LINE__;
 
 	rxd += 4;
 	if (rxd0 & MT_RXD0_NORMAL_GROUP_4) {
@@ -420,7 +469,7 @@ static int mt7615_mac_fill_rx(struct mt7615_dev *dev, struct sk_buff *skb)
 
 		rxd += 4;
 		if ((u8 *)rxd - skb->data >= skb->len)
-			return -EINVAL;
+			return -__LINE__;
 	}
 
 	if (rxd0 & MT_RXD0_NORMAL_GROUP_1) {
@@ -451,7 +500,7 @@ static int mt7615_mac_fill_rx(struct mt7615_dev *dev, struct sk_buff *skb)
 		}
 		rxd += 4;
 		if ((u8 *)rxd - skb->data >= skb->len)
-			return -EINVAL;
+			return -__LINE__;
 	}
 
 	if (rxd0 & MT_RXD0_NORMAL_GROUP_2) {
@@ -474,7 +523,7 @@ static int mt7615_mac_fill_rx(struct mt7615_dev *dev, struct sk_buff *skb)
 
 		rxd += 2;
 		if ((u8 *)rxd - skb->data >= skb->len)
-			return -EINVAL;
+			return -__LINE__;
 	}
 
 	if (rxd0 & MT_RXD0_NORMAL_GROUP_3) {
@@ -501,7 +550,7 @@ static int mt7615_mac_fill_rx(struct mt7615_dev *dev, struct sk_buff *skb)
 	}
 
 	if (!mt7615_firmware_offload(dev) && chfreq != phy->chfreq)
-		return -EINVAL;
+		return -__LINE__;
 
 	mt7615_get_status_freq_info(dev, mphy, status, chfreq);
 	if (status->band == NL80211_BAND_5GHZ)
@@ -510,10 +559,10 @@ static int mt7615_mac_fill_rx(struct mt7615_dev *dev, struct sk_buff *skb)
 		sband = &mphy->sband_2g.sband;
 
 	if (!test_bit(MT76_STATE_RUNNING, &mphy->state))
-		return -EINVAL;
+		return -__LINE__;
 
 	if (!sband->channels)
-		return -EINVAL;
+		return -__LINE__;
 
 	if (rxd0 & MT_RXD0_NORMAL_GROUP_3) {
 		u32 rxdg0 = le32_to_cpu(rxd[0]);
@@ -534,14 +583,14 @@ static int mt7615_mac_fill_rx(struct mt7615_dev *dev, struct sk_buff *skb)
 		case MT_PHY_TYPE_HT:
 			status->encoding = RX_ENC_HT;
 			if (i > 31)
-				return -EINVAL;
+				return -__LINE__;
 			break;
 		case MT_PHY_TYPE_VHT:
 			status->nss = FIELD_GET(MT_RXV2_NSTS, rxdg1) + 1;
 			status->encoding = RX_ENC_VHT;
 			break;
 		default:
-			return -EINVAL;
+			return -__LINE__;
 		}
 		status->rate_idx = i;
 
@@ -558,7 +607,7 @@ static int mt7615_mac_fill_rx(struct mt7615_dev *dev, struct sk_buff *skb)
 			status->bw = RATE_INFO_BW_160;
 			break;
 		default:
-			return -EINVAL;
+			return -__LINE__;
 		}
 
 		if (rxdg0 & MT_RXV1_HT_SHORT_GI)
@@ -578,7 +627,7 @@ static int mt7615_mac_fill_rx(struct mt7615_dev *dev, struct sk_buff *skb)
 
 		rxd += 6;
 		if ((u8 *)rxd - skb->data >= skb->len)
-			return -EINVAL;
+			return -__LINE__;
 	}
 
 	amsdu_info = FIELD_GET(MT_RXD1_NORMAL_PAYLOAD_FORMAT, rxd1);
@@ -591,7 +640,7 @@ static int mt7615_mac_fill_rx(struct mt7615_dev *dev, struct sk_buff *skb)
 	hdr_gap = (u8 *)rxd - skb->data + 2 * remove_pad;
 	if (hdr_trans && ieee80211_has_morefrags(fc)) {
 		if (mt7615_reverse_frag0_hdr_trans(skb, hdr_gap))
-			return -EINVAL;
+			return -__LINE__;
 		hdr_trans = false;
 	} else {
 		int pad_start = 0;
@@ -621,6 +670,14 @@ static int mt7615_mac_fill_rx(struct mt7615_dev *dev, struct sk_buff *skb)
 		}
 	}
 
+	if (hdr_trans && is_mt6768(&dev->mt76) &&
+	    (!status->wcid || !status->wcid->sta ||
+	     !test_bit(MT_WCID_FLAG_HDR_TRANS, &status->wcid->flags))) {
+		if (mt6768_reverse_hdr_trans(dev, skb, idx))
+			return -__LINE__;
+		hdr_trans = false;
+	}
+
 	if (insert_ccmp_hdr && !hdr_trans) {
 		u8 key_id = FIELD_GET(MT_RXD1_NORMAL_KEY_ID, rxd1);
 
@@ -630,6 +687,12 @@ static int mt7615_mac_fill_rx(struct mt7615_dev *dev, struct sk_buff *skb)
 	if (!hdr_trans) {
 		hdr = (struct ieee80211_hdr *)skb->data;
 		fc = hdr->frame_control;
+		/* the firmware owns the BA sessions and answers ADDBA itself */
+		if (is_mt6768(&dev->mt76) &&
+		    (ieee80211_is_back_req(fc) ||
+		     (ieee80211_is_action(fc) && skb->len > 24 &&
+		      skb->data[24] == WLAN_CATEGORY_BACK)))
+			return -EINVAL;
 		if (ieee80211_is_data_qos(fc)) {
 			seq_ctrl = le16_to_cpu(hdr->seq_ctrl);
 			qos_ctl = *ieee80211_get_qos_ctl(hdr);
@@ -706,6 +769,84 @@ mt7615_mac_tx_rate_val(struct mt7615_dev *dev,
 	return rateval;
 }
 
+/* management frames go to the firmware on the command ring */
+void mt6768_tx_mgmt(struct mt7615_dev *dev, struct mt76_wcid *wcid,
+	       struct ieee80211_vif *vif, struct sk_buff *skb)
+{
+	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
+	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
+	enum nl80211_band band = info->band;
+	u8 omac_idx = 0, rate;
+	struct sk_buff *cmd;
+	__le32 *txd;
+	int pid;
+
+	cmd = alloc_skb(MT_TXD_SIZE + skb->len, GFP_ATOMIC);
+	if (!cmd) {
+		ieee80211_free_txskb(mt76_hw(dev), skb);
+		return;
+	}
+
+	if (vif)
+		omac_idx = ((struct mt76_vif_link *)vif->drv_priv)->omac_idx;
+
+	pid = mt76_tx_status_skb_add(&dev->mt76, wcid, skb);
+	if (pid < MT_PACKET_ID_FIRST) {
+		pid = 0;
+	} else {
+		struct mt76_tx_cb *cb = mt76_tx_skb_cb(skb);
+
+		/* the copy is DMA'd: TX_DONE alone finishes this one */
+		spin_lock_bh(&dev->mt76.status_lock);
+		cb->jiffies = jiffies;
+		cb->flags |= MT_TX_CB_DMA_DONE;
+		spin_unlock_bh(&dev->mt76.status_lock);
+	}
+
+	rate = band == NL80211_BAND_2GHZ ? MT6768_RATE_CCK_1M :
+					   MT6768_RATE_OFDM_6M;
+
+	txd = skb_put_zero(cmd, MT_TXD_SIZE);
+	txd[0] = cpu_to_le32(FIELD_PREP(MT_TXD0_TX_BYTES, MT_TXD_SIZE + skb->len) |
+			     FIELD_PREP(MT_TXD0_P_IDX, MT_TX_PORT_IDX_MCU) |
+			     FIELD_PREP(MT_TXD0_Q_IDX, 1));
+	txd[1] = cpu_to_le32(MT_TXD1_LONG_FORMAT |
+			     FIELD_PREP(MT_TXD1_WLAN_IDX, wcid->idx) |
+			     FIELD_PREP(MT_TXD1_HDR_FORMAT, MT_HDR_FORMAT_802_11) |
+			     FIELD_PREP(MT_TXD1_HDR_INFO,
+					ieee80211_get_hdrlen_from_skb(skb) / 2) |
+			     FIELD_PREP(MT_TXD1_PKT_FMT, MT_TX_TYPE_CMD) |
+			     FIELD_PREP(MT_TXD1_OWN_MAC, omac_idx));
+	txd[2] = cpu_to_le32(FIELD_PREP(MT_TXD2_SUB_TYPE,
+					(le16_to_cpu(hdr->frame_control) &
+					 IEEE80211_FCTL_STYPE) >> 4) |
+			     FIELD_PREP(MT_TXD2_MULTICAST,
+					is_multicast_ether_addr(hdr->addr1)) |
+			     FIELD_PREP(MT_TXD2_MAX_TX_TIME, 61) |
+			     MT_TXD2_FIX_RATE);
+	/* BIT(4): force TX, as the vendor driver sets on mgmt frames */
+	txd[3] = cpu_to_le32(BIT(4) | FIELD_PREP(MT_TXD3_REM_TX_COUNT, 30) |
+			     MT_TXD3_SN_VALID |
+			     FIELD_PREP(MT_TXD3_SEQ,
+					IEEE80211_SEQ_TO_SN(le16_to_cpu(hdr->seq_ctrl))));
+	if (info->flags & IEEE80211_TX_CTL_NO_ACK)
+		txd[3] |= cpu_to_le32(MT_TXD3_NO_ACK);
+	if (pid)
+		txd[5] = cpu_to_le32(FIELD_PREP(MT_TXD5_PID, pid) |
+				     MT_TXD5_TX_STATUS_MCU);
+	txd[6] = cpu_to_le32(FIELD_PREP(MT_TXD6_TX_RATE, rate));
+	skb_put_data(cmd, skb->data, skb->len);
+
+	mt76_tx_queue_skb_raw(dev, dev->mt76.q_mcu[MT_MCUQ_WM], cmd, 0);
+
+	/* may run in RX context, where completing it would take rx_lock */
+	if (!pid)
+		ieee80211_free_txskb(mt76_hw(dev), skb);
+}
+
+static int dbg_rate;
+module_param(dbg_rate, int, 0644);
+
 int mt7615_mac_write_txwi(struct mt7615_dev *dev, __le32 *txwi,
 			  struct sk_buff *skb, struct mt76_wcid *wcid,
 			  struct ieee80211_sta *sta, int pid,
@@ -733,7 +874,8 @@ int mt7615_mac_write_txwi(struct mt7615_dev *dev, __le32 *txwi,
 		wmm_idx = mvif->wmm_idx;
 	}
 
-	if (sta) {
+	/* its firmware does rate control: no WTBL rate sets */
+	if (sta && !is_mt6768(&dev->mt76)) {
 		struct mt7615_sta *msta = (struct mt7615_sta *)sta->drv_priv;
 
 		tx_count = msta->rate_count;
@@ -796,7 +938,9 @@ int mt7615_mac_write_txwi(struct mt7615_dev *dev, __le32 *txwi,
 	txwi[6] = 0;
 
 	if (rate->idx >= 0 && rate->count &&
-	    !(info->flags & IEEE80211_TX_CTL_RATE_CTRL_PROBE)) {
+	    !(info->flags & IEEE80211_TX_CTL_RATE_CTRL_PROBE) &&
+	    (!is_mt6768(&dev->mt76) || !ieee80211_is_data(fc) ||
+	     (info->control.flags & IEEE80211_TX_CTRL_PORT_CTRL_PROTO))) {
 		bool stbc = info->flags & IEEE80211_TX_CTL_STBC;
 		u8 bw;
 		u16 rateval = mt7615_mac_tx_rate_val(dev, mphy, rate, stbc,
@@ -852,6 +996,16 @@ int mt7615_mac_write_txwi(struct mt7615_dev *dev, __le32 *txwi,
 
 	txwi[3] |= cpu_to_le32(val);
 
+	if (is_mt6768(&dev->mt76) && dbg_rate && ieee80211_is_data(fc)) {
+		txwi[2] |= cpu_to_le32(MT_TXD2_FIX_RATE);
+		txwi[6] = cpu_to_le32(FIELD_PREP(MT_TXD6_TX_RATE, dbg_rate & 0xfff));
+		if (dbg_rate & BIT(16))
+			txwi[6] |= cpu_to_le32(MT_TXD6_FIXED_BW |
+					       FIELD_PREP(MT_TXD6_BW, dbg_rate >> 17));
+		if (dbg_rate & BIT(20))
+			txwi[6] |= cpu_to_le32(MT_TXD6_LDPC);
+	}
+
 	if (info->flags & IEEE80211_TX_CTL_NO_ACK)
 		txwi[3] |= cpu_to_le32(MT_TXD3_NO_ACK);
 
@@ -871,6 +1025,10 @@ EXPORT_SYMBOL_GPL(mt7615_mac_write_txwi);
 
 bool mt7615_mac_wtbl_update(struct mt7615_dev *dev, int idx, u32 mask)
 {
+	/* the firmware owns the WTBL and the LMAC */
+	if (is_mt6768(&dev->mt76))
+		return true;
+
 	mt76_rmw(dev, MT_WTBL_UPDATE, MT_WTBL_UPDATE_WLAN_IDX,
 		 FIELD_PREP(MT_WTBL_UPDATE_WLAN_IDX, idx) | mask);
 
@@ -1100,6 +1258,9 @@ void mt7615_mac_set_rates(struct mt7615_phy *phy, struct mt7615_sta *sta,
 	struct mt7615_rate_desc rd;
 	u32 w5, w27, addr;
 	u16 idx = sta->vif->mt76.omac_idx;
+
+	if (is_mt6768(&dev->mt76))
+		return;
 
 	if (!mt76_is_mmio(&dev->mt76)) {
 		mt7615_mac_queue_rate_update(phy, sta, probe_rate, rates);
@@ -1648,12 +1809,25 @@ void mt7615_queue_rx_skb(struct mt76_dev *mdev, enum mt76_rxq_id q,
 		break;
 	case PKT_TYPE_NORMAL_MCU:
 	case PKT_TYPE_NORMAL:
-		if (!mt7615_mac_fill_rx(dev, skb)) {
+		flag = -mt7615_mac_fill_rx(dev, skb);
+		if (!flag) {
+			struct mt76_rx_status *st = (struct mt76_rx_status *)skb->cb;
+
+			if ((st->flag & RX_FLAG_8023) ||
+			    !ieee80211_is_mgmt(((struct ieee80211_hdr *)skb->data)->frame_control))
+				dev_info_ratelimited(dev->mt76.dev,
+						     "DBG rx data q %d len %d 8023 %d wcid %d: %*ph\n",
+						     q, skb->len, !!(st->flag & RX_FLAG_8023),
+						     st->wcid ? st->wcid->idx : -1,
+						     min_t(int, skb->len, 40), skb->data);
 			mt76_rx(&dev->mt76, q, skb);
 			return;
 		}
+		dev_info_ratelimited(dev->mt76.dev, "DBG fill_rx line %d\n", flag);
 		fallthrough;
 	default:
+		dev_info_ratelimited(dev->mt76.dev, "DBG rx drop type %d len %d: %*ph\n",
+				     type, skb->len, min_t(int, skb->len, 64), skb->data);
 		dev_kfree_skb(skb);
 		break;
 	}
@@ -2080,6 +2254,9 @@ void mt7615_mac_work(struct work_struct *work)
 
 	mt7615_mutex_acquire(phy->dev);
 
+	if (is_mt6768(&phy->dev->mt76))
+		goto out;
+
 	mt7615_update_survey(phy->dev);
 	if (++mphy->mac_work_count == 5) {
 		mphy->mac_work_count = 0;
@@ -2088,6 +2265,7 @@ void mt7615_mac_work(struct work_struct *work)
 		mt7615_mac_scs_check(phy);
 	}
 
+out:
 	mt7615_mutex_release(phy->dev);
 
 	mt76_tx_status_check(mphy->dev, false);
@@ -2272,6 +2450,13 @@ int mt7615_mac_set_beacon_filter(struct mt7615_phy *phy,
 
 	if (!mt7615_firmware_offload(dev))
 		return -EOPNOTSUPP;
+
+	/* the firmware filters beacons itself and reports their loss */
+	if (is_mt6768(&dev->mt76)) {
+		if (vif->type == NL80211_IFTYPE_STATION)
+			vif->driver_flags |= IEEE80211_VIF_BEACON_FILTER;
+		return 0;
+	}
 
 	switch (vif->type) {
 	case NL80211_IFTYPE_MONITOR:

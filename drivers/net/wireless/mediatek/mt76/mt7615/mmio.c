@@ -63,6 +63,31 @@ const u32 mt7663e_reg_map[] = {
 	[MT_EFUSE_ADDR_BASE]	= 0x78011000,
 };
 
+/* the SoC bus has no HIF2 (0xf0000) */
+const u32 mt6768_reg_map[] = {
+	[MT_TOP_CFG_BASE]	= 0xb0000,
+	[MT_HW_BASE]		= 0x02000,
+	[MT_DMA_SHDL_BASE]	= 0x06000,
+	[MT_ARB_BASE]		= 0x20c00,
+	[MT_HIF_BASE]		= 0x04000,
+	[MT_CSR_BASE]		= 0x07000,
+	[MT_PLE_BASE]		= 0x08000,
+	[MT_PSE_BASE]		= 0x0c000,
+	[MT_PP_BASE]            = 0x0e000,
+	[MT_CFG_BASE]		= 0x20000,
+	[MT_AGG_BASE]		= 0x22000,
+	[MT_TMAC_BASE]		= 0x24000,
+	[MT_RMAC_BASE]		= 0x25000,
+	[MT_DMA_BASE]		= 0x27000,
+	[MT_PF_BASE]		= 0x28000,
+	[MT_WTBL_BASE_ON]	= 0x29000,
+	[MT_WTBL_BASE_OFF]	= 0x29800,
+	[MT_LPON_BASE]		= 0x2b000,
+	[MT_MIB_BASE]		= 0x2d000,
+	[MT_WTBL_BASE_ADDR]	= 0x30000,
+	[MT_TOP_MISC_BASE]	= 0xc0000,
+};
+
 static void
 mt7615_rx_poll_complete(struct mt76_dev *mdev, enum mt76_rxq_id q)
 {
@@ -164,7 +189,7 @@ static u32 mt7615_rmw(struct mt76_dev *mdev, u32 offset, u32 mask, u32 val)
 }
 
 int mt7615_mmio_probe(struct device *pdev, void __iomem *mem_base,
-		      int irq, const u32 *map)
+		      int irq, const u32 *map, u16 chip)
 {
 	static const struct mt76_driver_ops drv_ops = {
 		/* txwi_size = txd size + txp size */
@@ -194,6 +219,9 @@ int mt7615_mmio_probe(struct device *pdev, void __iomem *mem_base,
 	if (!ops)
 		return -ENOMEM;
 
+	if (chip == 0x6768)
+		mt6768_init_ops(ops);
+
 	mdev = mt76_alloc_device(pdev, sizeof(*dev), ops, &drv_ops);
 	if (!mdev)
 		return -ENOMEM;
@@ -204,7 +232,9 @@ int mt7615_mmio_probe(struct device *pdev, void __iomem *mem_base,
 
 	dev->reg_map = map;
 	dev->ops = ops;
-	mdev->rev = (mt76_rr(dev, MT_HW_CHIPID) << 16) |
+	INIT_WORK(&dev->dbg_sleepy_work, mt6768_dbg_sleepy_work);
+	/* MT6768 reports its IP (0x6632), which is not unique */
+	mdev->rev = ((chip ?: mt76_rr(dev, MT_HW_CHIPID)) << 16) |
 		    (mt76_rr(dev, MT_HW_REV) & 0xff);
 	dev_dbg(mdev->dev, "ASIC revision: %04x\n", mdev->rev);
 
@@ -228,7 +258,9 @@ int mt7615_mmio_probe(struct device *pdev, void __iomem *mem_base,
 	if (ret)
 		goto err_free_dev;
 
-	if (is_mt7663(mdev))
+	if (is_mt6768(mdev))
+		mt76_wr(dev, MT_CONN_HIF_ON_IRQ_ENA, 1);
+	else if (is_mt7663(mdev))
 		mt76_wr(dev, MT_PCIE_IRQ_ENABLE, 1);
 
 	ret = mt7615_register_device(dev);
@@ -256,14 +288,29 @@ static int __init mt7615_init(void)
 	if (IS_ENABLED(CONFIG_MT7622_WMAC)) {
 		ret = platform_driver_register(&mt7622_wmac_driver);
 		if (ret)
-			pci_unregister_driver(&mt7615_pci_driver);
+			goto err_pci;
 	}
 
+	if (IS_ENABLED(CONFIG_MT6768_WMAC)) {
+		ret = platform_driver_register(&mt6768_wmac_driver);
+		if (ret)
+			goto err_mt7622;
+	}
+
+	return 0;
+
+err_mt7622:
+	if (IS_ENABLED(CONFIG_MT7622_WMAC))
+		platform_driver_unregister(&mt7622_wmac_driver);
+err_pci:
+	pci_unregister_driver(&mt7615_pci_driver);
 	return ret;
 }
 
 static void __exit mt7615_exit(void)
 {
+	if (IS_ENABLED(CONFIG_MT6768_WMAC))
+		platform_driver_unregister(&mt6768_wmac_driver);
 	if (IS_ENABLED(CONFIG_MT7622_WMAC))
 		platform_driver_unregister(&mt7622_wmac_driver);
 	pci_unregister_driver(&mt7615_pci_driver);

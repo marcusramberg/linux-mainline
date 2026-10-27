@@ -209,7 +209,7 @@ enum {
 struct mt7615_roc_tlv {
 	u8 bss_idx;
 	u8 token;
-	u8 active;
+	u8 active;	/* 1 releases the channel */
 	u8 primary_chan;
 	u8 sco;
 	u8 band;
@@ -239,5 +239,224 @@ enum {
 	DBDC_TYPE_PTA,
 	__DBDC_TYPE_MAX,
 };
+
+/* MT6768: the legacy CE command set, all its firmware has */
+#define MT6768_STA_TYPE_AP		0x41
+#define MT6768_STA_TYPE_CLIENT		0x21
+#define MT6768_EVENT_RX_ADDBA		0x0a
+#define MT6768_EVENT_RX_DELBA		0x0b
+
+struct mt6768_tx_done {
+	u8 pid;
+	u8 status;
+	__le16 sn;
+	u8 wlan_idx;
+	u8 tx_count;
+	__le16 tx_rate;
+	u8 rsv[80];
+} __packed;
+
+#define MT6768_STA_STATE_1		0
+#define MT6768_STA_STATE_3		2
+#define MT6768_STA_ALL			27
+
+#define MT6768_PHY_HR_DSSS		BIT(0)
+#define MT6768_PHY_ERP			BIT(1)
+#define MT6768_PHY_OFDM			BIT(3)
+#define MT6768_PHY_HT			BIT(4)
+#define MT6768_PHY_VHT			BIT(5)
+
+#define MT6768_BAND_2G			1
+#define MT6768_BAND_5G			2
+#define MT6768_SCA			1
+#define MT6768_SCB			3
+#define MT6768_DBDC_AUTO		4
+#define MT6768_CH_REQ_JOIN		0
+
+#define MT6768_RATE_CCK_1M		0x0000
+#define MT6768_RATE_OFDM_6M		0x004b
+
+struct mt6768_bss_activate {
+	u8 bss_idx;
+	u8 active;
+	u8 net_type;
+	u8 omac_idx;
+	u8 addr[ETH_ALEN];
+	u8 bmc_wlan_idx;
+	u8 rsv;
+} __packed;
+
+struct mt6768_bss_rlm {
+	u8 bss_idx;
+	u8 band;
+	u8 primary_ch;
+	u8 sco;
+	u8 erp_prot;
+	u8 ht_prot;
+	u8 gf_mode;
+	u8 tx_rifs;
+	__le16 ht_op_info3;
+	__le16 ht_op_info2;
+	u8 ht_op_info1;
+	u8 short_preamble;
+	u8 short_slot;
+	u8 vht_width;
+	u8 vht_seg1;
+	u8 vht_seg2;
+	__le16 vht_basic_mcs;
+	u8 tx_nss;
+	u8 rx_nss;
+} __packed;
+
+struct mt6768_bss_info {
+	u8 bss_idx;
+	u8 conn_state;		/* 0 connected, 1 disconnected */
+	u8 op_mode;		/* 0 infra, 2 AP */
+	u8 ssid_len;
+	u8 ssid[IEEE80211_MAX_SSID_LEN];
+	u8 bssid[ETH_ALEN];
+	u8 qos;
+	u8 version;
+	__le16 rates;
+	__le16 basic_rates;
+	u8 ap_sta_idx;
+	u8 rsv0;
+	__le16 fixed_rate;
+	u8 non_ht_phy;
+	u8 auth_mode;
+	u8 enc_status;
+	u8 phy_types;
+	u8 wapi;
+	u8 ap_mode;
+	u8 bmc_wlan_idx;
+	u8 hidden_ssid;
+	u8 disconnect_threshold;
+	u8 iot_act;
+	u8 rsv1[2];
+	__le32 private;
+	struct mt6768_bss_rlm rlm;
+	u8 dbdc_band;
+	u8 wmm_set;
+	u8 dbdc_action;
+	u8 nss;
+	u8 rsv2[22];
+} __packed;
+
+struct mt6768_sta_rec {
+	u8 sta_idx;
+	u8 sta_type;
+	u8 addr[ETH_ALEN];
+	__le16 aid;
+	__le16 listen_interval;
+	u8 bss_idx;
+	u8 phy_types;
+	__le16 rates;
+	__le16 basic_rates;
+	u8 qos;
+	u8 uapsd;
+	u8 state;
+	u8 mcs;
+	u8 mcs32;
+	u8 version;
+	u8 rx_mcs_mask[10];
+	__le16 rx_highest;
+	__le32 tx_rate_info;
+	__le16 ht_cap;
+	__le16 ht_ext_cap;
+	__le32 txbf_cap;
+	u8 ampdu_param;
+	u8 asel_cap;
+	u8 rcpi;
+	u8 need_resp;
+	u8 uapsd_ac;
+	u8 uapsd_sp;
+	u8 wlan_idx;
+	u8 bmc_wlan_idx;
+	__le32 vht_cap;
+	__le16 vht_rx_mcs_map;
+	__le16 vht_rx_highest;
+	__le16 vht_tx_mcs_map;
+	__le16 vht_tx_highest;
+	u8 rts_policy;
+	u8 vht_op_mode;
+	u8 traffic_type;
+	u8 tx_gf;
+	u8 tx_sgi;
+	u8 tx_stbc;
+	__le16 fixed_rate;
+	u8 tx_ampdu;
+	u8 rx_ampdu;
+	u8 rsv0[2];
+	__le32 fixed_phy_rate;
+	__le16 max_link_speed;
+	__le16 min_link_speed;
+	__le32 flags;
+	u8 tx_ba_size;
+	u8 rx_ba_size;
+	u8 rsv1[34];
+	u8 tx_amsdu_in_ampdu;
+	u8 rx_amsdu_in_ampdu;
+	u8 rsv2[2];
+	__le32 max_amsdu_len;
+	u8 rsv3[32];
+} __packed;
+
+struct mt6768_sta_remove {
+	u8 action;		/* 0 one STA, 1 all of the BSS */
+	u8 sta_idx;
+	u8 bss_idx;
+	u8 rsv;
+} __packed;
+
+struct mt6768_key {
+	u8 add;
+	u8 tx_key;
+	u8 pairwise;
+	u8 authenticator;
+	u8 peer_addr[ETH_ALEN];
+	u8 bss_idx;
+	u8 cipher;
+	u8 key_id;
+	u8 key_len;
+	u8 wlan_idx;
+	u8 mgmt_prot;
+	u8 key[32];
+	u8 rsc[16];
+} __packed;
+
+struct mt6768_ac_params {
+	__le16 cw_min;
+	__le16 cw_max;
+	__le16 txop;
+	__le16 aifs;
+	u8 guard_time;
+	u8 acm;
+} __packed;
+
+struct mt6768_wmm {
+	struct mt6768_ac_params ac[IEEE80211_NUM_ACS];	/* BE, BK, VI, VO */
+	u8 bss_idx;
+	u8 qos;
+	u8 wmm_set;
+	u8 rsv;
+} __packed;
+
+struct mt6768_subband {
+	u8 reg_class;
+	u8 band;
+	u8 span;
+	u8 first_ch;
+	u8 n_ch;
+	u8 rsv[3];
+} __packed;
+
+struct mt6768_domain_info {
+	__le16 country;
+	__le16 passive;
+	struct mt6768_subband sub[6];
+	u8 bw_2g;
+	u8 bw_5g;
+	u8 rsv[2];
+} __packed;
 
 #endif

@@ -8,6 +8,7 @@
  * mandatory mode: no sequence numbers, acks or CRC.
  */
 
+#include <linux/delay.h>
 #include <linux/firmware.h>
 #include <linux/module.h>
 #include <linux/of.h>
@@ -35,6 +36,7 @@
 #define WMT_RESET			0x07
 #define WMT_COEX			0x10
 #define WMT_RF_CAL			0x14
+#define WMT_SEMAPHORE			0x17
 
 #define WMT_HDR_SIZE			4
 #define WMT_EVT_MAX			64
@@ -138,8 +140,8 @@ static int consys_wmt(struct btmtkconnsys_dev *bdev, const u8 *cmd,
 		return ret;
 	}
 
-	/* 02 <opcode> <len16> <status> ... */
-	if (bdev->wmt_len < WMT_HDR_SIZE + 1 || bdev->wmt_evt[4]) {
+	/* 02 <opcode> <len16> <status> ...; callers with evt check status */
+	if (bdev->wmt_len < WMT_HDR_SIZE + 1 || (!evt && bdev->wmt_evt[4])) {
 		bt_dev_err(bdev->hdev, "WMT %02x: bad reply %*ph", cmd[1],
 			   (int)min(bdev->wmt_len, 8U), bdev->wmt_evt);
 		return -EIO;
@@ -168,14 +170,27 @@ static int consys_wmt_cmd(struct btmtkconnsys_dev *bdev, u8 op,
 	consys_wmt_cmd(bdev, op, (const u8[]){ __VA_ARGS__ },		\
 		       sizeof((const u8[]){ __VA_ARGS__ }))
 
+static int dbg_frag;
+module_param(dbg_frag, int, 0644);
+
 static int consys_load_patch(struct btmtkconnsys_dev *bdev)
 {
 	const struct consys_patch_hdr *hdr;
 	const struct firmware *fw;
 	u8 cmd[21] = { 0x01, WMT_PATCH, 0x11, 0x00, 0x00 };
 	__le32 pda[3] = {};
+	u8 evt[8];
 	size_t len;
-	int ret;
+	int ret, rel;
+
+	/* Wi-Fi may have patched the MCU already */
+	ret = consys_wmt(bdev, (const u8[]){ 0x01, WMT_SEMAPHORE, 0x01, 0x00, 0x01 },
+			 5, evt, sizeof(evt));
+	bt_dev_info(bdev->hdev, "DBG sem ret %d %*ph", ret, (int)sizeof(evt), evt);
+	if (ret < 0)
+		return ret;
+	if (evt[4] != 2)
+		return 0;
 
 	ret = request_firmware(&fw, FW_PATCH, &bdev->serdev->dev);
 	if (ret)
@@ -186,6 +201,29 @@ static int consys_load_patch(struct btmtkconnsys_dev *bdev)
 		goto out;
 	hdr = (const void *)fw->data;
 	len = fw->size - sizeof(*hdr);
+
+	if (dbg_frag) {
+		const u8 *p = fw->data + sizeof(*hdr);
+		size_t left = len;
+		u8 frag[WMT_HDR_SIZE + 1 + 250];
+
+		while (left) {
+			size_t n = min_t(size_t, left, 250);
+
+			frag[0] = 0x01;
+			frag[1] = WMT_PATCH;
+			put_unaligned_le16(n + 1, frag + 2);
+			frag[4] = left == len ? 1 : (left == n ? 3 : 2);
+			memcpy(frag + 5, p, n);
+			ret = consys_wmt(bdev, frag, 5 + n, NULL, 0);
+			if (ret < 0)
+				goto out;
+			p += n;
+			left -= n;
+		}
+		msleep(100);
+		goto start;
+	}
 
 	/* download address, size, scramble key, configuration */
 	put_unaligned_le32(le32_to_cpu(hdr->addr) & ~0xff, cmd + 5);
@@ -205,12 +243,19 @@ static int consys_load_patch(struct btmtkconnsys_dev *bdev)
 	if (ret)
 		goto out;
 
+start:
 	/* starts the patched firmware */
 	ret = WMT_CMD(bdev, WMT_RESET, 0x04);
 	if (!ret)
 		bt_dev_info(bdev->hdev, "MCU patch %.16s", hdr->date);
 out:
 	release_firmware(fw);
+	rel = consys_wmt(bdev, (const u8[]){ 0x01, WMT_SEMAPHORE, 0x01, 0x00, 0x00 },
+			 5, evt, sizeof(evt));
+	bt_dev_info(bdev->hdev, "DBG sem rel %d %*ph", rel, (int)sizeof(evt), evt);
+	rel = consys_wmt(bdev, (const u8[]){ 0x01, WMT_SEMAPHORE, 0x01, 0x00, 0x01 },
+			 5, evt, sizeof(evt));
+	bt_dev_info(bdev->hdev, "DBG sem again %d %*ph", rel, (int)sizeof(evt), evt);
 	return ret;
 }
 
@@ -233,7 +278,7 @@ static int btmtkconnsys_setup(struct hci_dev *hdev)
 			 5, evt, sizeof(evt));
 	if (ret < 0)
 		return ret;
-	if (ret >= sizeof(evt))
+	if (ret >= sizeof(evt) && !evt[4])
 		bt_dev_info(hdev, "A-die MT%04x", get_unaligned_le16(evt + 7));
 
 	/* BT TX power tracks Wi-Fi's TSSI, target 3776 */

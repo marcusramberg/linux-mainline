@@ -106,6 +106,10 @@ int mt7615_tx_prepare_skb(struct mt76_dev *mdev, void *txwi_ptr,
 	else
 		mt76_connac_write_hw_txp(mdev, tx_info, txp, id);
 
+	if (is_mt6768(mdev))
+		dev_info_ratelimited(mdev->dev, "DBG txd q %d: %*ph\n", qid,
+				     MT_TXD_SIZE + 24, txwi);
+
 	tx_info->skb = NULL;
 
 	return 0;

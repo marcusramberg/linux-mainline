@@ -213,9 +213,18 @@ static inline bool is_connac2(struct mt76_dev *dev)
 				is_mt7902(dev);
 }
 
+static inline bool is_mt6768(struct mt76_dev *dev)
+{
+	if (!IS_ENABLED(CONFIG_MT6768_WMAC))
+		return false;
+
+	return mt76_chip(dev) == 0x6768;
+}
+
+/* MT6768's CONNSYS Wi-Fi is an MT7663 core on the SoC bus */
 static inline bool is_mt7663(struct mt76_dev *dev)
 {
-	return mt76_chip(dev) == 0x7663;
+	return mt76_chip(dev) == 0x7663 || is_mt6768(dev);
 }
 
 static inline bool is_mt7915(struct mt76_dev *dev)
@@ -296,6 +305,7 @@ static inline bool is_mt76_fw_txp(struct mt76_dev *dev)
 	case 0x7925:
 	case 0x7927:
 	case 0x7663:
+	case 0x6768:
 	case 0x7622:
 		return false;
 	default:

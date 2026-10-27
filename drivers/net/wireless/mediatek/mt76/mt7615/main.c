@@ -39,6 +39,10 @@ static int mt7615_start(struct ieee80211_hw *hw)
 
 	running = mt7615_dev_running(dev);
 
+	/* its firmware brings the MAC up itself */
+	if (is_mt6768(&dev->mt76))
+		goto start;
+
 	if (!running) {
 		ret = mt7615_mcu_set_pm(dev, 0, 0);
 		if (ret)
@@ -77,6 +81,7 @@ static int mt7615_start(struct ieee80211_hw *hw)
 	if (ret)
 		goto out;
 
+start:
 	set_bit(MT76_STATE_RUNNING, &phy->mt76->state);
 
 	timeout = mt7615_get_macwork_timeout(dev);
@@ -112,6 +117,9 @@ static void mt7615_stop(struct ieee80211_hw *hw, bool suspend)
 	clear_bit(MT76_STATE_RUNNING, &phy->mt76->state);
 	cancel_delayed_work_sync(&phy->scan_work);
 
+	if (is_mt6768(&dev->mt76))
+		goto out;
+
 	if (phy != &dev->phy) {
 		mt7615_mcu_set_pm(dev, 1, 1);
 		mt76_connac_mcu_set_mac_enable(&dev->mt76, 1, false, false);
@@ -122,6 +130,7 @@ static void mt7615_stop(struct ieee80211_hw *hw, bool suspend)
 		mt76_connac_mcu_set_mac_enable(&dev->mt76, 0, false, false);
 	}
 
+out:
 	mt7615_mutex_release(dev);
 }
 
@@ -208,7 +217,8 @@ static int mt7615_add_interface(struct ieee80211_hw *hw,
 	mvif->mt76.omac_idx = idx;
 
 	mvif->mt76.band_idx = ext_phy;
-	mvif->mt76.wmm_idx = vif->type != NL80211_IFTYPE_AP;
+	mvif->mt76.wmm_idx = vif->type != NL80211_IFTYPE_AP &&
+			     !is_mt6768(&dev->mt76);
 	mvif->mt76.wcid = &mvif->sta.wcid;
 	if (ext_phy)
 		mvif->mt76.wmm_idx += 2;
@@ -289,6 +299,11 @@ int mt7615_set_channel(struct mt76_phy *mphy)
 	int ret;
 
 	mt76_connac_pm_wake(mphy, &dev->pm);
+
+	/* its firmware tunes to the channels it is granted itself */
+	ret = 0;
+	if (is_mt6768(&dev->mt76))
+		goto out;
 
 	if (is_mt7615(&dev->mt76) && dev->flash_eeprom) {
 		ret = mt7615_mcu_apply_rx_dcoc(phy);
@@ -376,9 +391,18 @@ static int mt7615_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 
 	mt7615_mutex_acquire(dev);
 
-	if (cmd == SET_KEY && !sta && !mvif->mt76.cipher) {
+	/* without the AP station its BSS info would read as disconnected */
+	if (cmd == SET_KEY && !mvif->mt76.cipher &&
+	    (is_mt6768(&dev->mt76) ? !!sta : !sta)) {
 		mvif->mt76.cipher = mt76_connac_mcu_get_cipher(key->cipher);
-		mt7615_mcu_add_bss_info(phy, vif, NULL, true);
+		mt7615_mcu_add_bss_info(phy, vif, sta, true);
+	}
+
+	if (is_mt6768(&dev->mt76)) {
+		if (cmd == SET_KEY)
+			mt76_wcid_key_setup(&dev->mt76, wcid, key);
+		err = mt6768_mcu_set_key(dev, vif, wcid, key, cmd == SET_KEY);
+		goto out;
 	}
 
 	if (cmd == SET_KEY)
@@ -468,10 +492,19 @@ mt7615_conf_tx(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 
 	mt7615_mutex_acquire(dev);
 
+	if (is_mt6768(&dev->mt76)) {
+		struct mt7615_vif *mv = (struct mt7615_vif *)vif->drv_priv;
+
+		mv->wmm[queue] = *params;
+		err = mt6768_mcu_set_wmm(dev, vif, mv->wmm);
+		goto out;
+	}
+
 	queue = mt7615_lmac_mapping(dev, queue);
 	queue += mvif->wmm_idx * MT7615_MAX_WMM_SETS;
 	err = mt7615_mcu_set_wmm(dev, queue, params);
 
+out:
 	mt7615_mutex_release(dev);
 
 	return err;
@@ -492,6 +525,23 @@ static void mt7615_configure_filter(struct ieee80211_hw *hw,
 			MT_WF_RFCR1_DROP_CFEND |
 			MT_WF_RFCR1_DROP_CFACK;
 	u32 flags = 0;
+
+	if (is_mt6768(&dev->mt76)) {
+		/* the vendor's ALL_MULTICAST | BROADCAST, unicast is implicit */
+		struct {
+			__le32 filter;
+			u8 rsv[64];
+		} req = {
+			.filter = cpu_to_le32(0x0c),
+		};
+
+		*total_flags = 0;
+		mt7615_mutex_acquire(dev);
+		mt76_mcu_send_msg(&dev->mt76, MCU_CE_CMD(SET_RX_FILTER), &req,
+				  sizeof(req), false);
+		mt7615_mutex_release(dev);
+		return;
+	}
 
 	mt7615_mutex_acquire(dev);
 
@@ -595,7 +645,8 @@ static void mt7615_bss_info_changed(struct ieee80211_hw *hw,
 		       BSS_CHANGED_BEACON_ENABLED))
 		mt7615_mcu_add_beacon(dev, hw, vif, info->enable_beacon);
 
-	if (changed & BSS_CHANGED_HT || changed & BSS_CHANGED_ERP_CTS_PROT)
+	if ((changed & BSS_CHANGED_HT || changed & BSS_CHANGED_ERP_CTS_PROT) &&
+	    !is_mt6768(&dev->mt76))
 		mt7615_mcu_set_protection(phy, vif, info->ht_operation_mode,
 					  info->use_cts_prot);
 
@@ -603,7 +654,7 @@ static void mt7615_bss_info_changed(struct ieee80211_hw *hw,
 		mt76_connac_mcu_set_vif_ps(&dev->mt76, vif);
 
 	if ((changed & BSS_CHANGED_ARP_FILTER) &&
-	    mt7615_firmware_offload(dev)) {
+	    mt7615_firmware_offload(dev) && !is_mt6768(&dev->mt76)) {
 		struct mt7615_vif *mvif = (struct mt7615_vif *)vif->drv_priv;
 
 		mt76_connac_mcu_update_arp_filter(&dev->mt76, &mvif->mt76,
@@ -612,6 +663,11 @@ static void mt7615_bss_info_changed(struct ieee80211_hw *hw,
 
 	if (changed & BSS_CHANGED_ASSOC)
 		mt7615_mac_set_beacon_filter(phy, vif, vif->cfg.assoc);
+
+	/* the DTIM period is only known from the first beacon */
+	if ((changed & BSS_CHANGED_BEACON_INFO) && vif->cfg.assoc &&
+	    is_mt6768(&dev->mt76))
+		mt7615_mcu_set_bss_pm(dev, vif, true);
 
 	if (changed & BSS_CHANGED_MU_GROUPS)
 		 mt7615_update_mu_group(hw, vif, info);
@@ -770,6 +826,12 @@ static void mt7615_tx(struct ieee80211_hw *hw,
 		wcid = &msta->wcid;
 	}
 
+	if (is_mt6768(&dev->mt76) &&
+	    ieee80211_is_mgmt(((struct ieee80211_hdr *)skb->data)->frame_control)) {
+		mt6768_tx_mgmt(dev, wcid, vif, skb);
+		return;
+	}
+
 	if (mt76_connac_pm_ref(mphy, &dev->pm)) {
 		mt76_tx(mphy, control->sta, wcid, skb);
 		mt76_connac_pm_unref(mphy, &dev->pm);
@@ -791,6 +853,9 @@ static int mt7615_set_rts_threshold(struct ieee80211_hw *hw, int radio_idx,
 	struct mt7615_dev *dev = mt7615_hw_dev(hw);
 	struct mt7615_phy *phy = mt7615_hw_phy(hw);
 	int err, band = phy != &dev->phy;
+
+	if (is_mt6768(&dev->mt76))
+		return 0;
 
 	mt7615_mutex_acquire(dev);
 	err = mt76_connac_mcu_set_rts_thresh(&dev->mt76, val, band);
@@ -844,6 +909,10 @@ mt7615_ampdu_action(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 		ret = mt7615_mcu_add_tx_ba(dev, params, false);
 		break;
 	case IEEE80211_AMPDU_TX_START:
+		if (is_mt6768(&dev->mt76)) {
+			ret = -EOPNOTSUPP;
+			break;
+		}
 		ssn = mt7615_mac_get_sta_tid_sn(dev, msta->wcid.idx, tid);
 		params->ssn = ssn;
 		ret = IEEE80211_AMPDU_TX_START_IMMEDIATE;
@@ -1314,6 +1383,83 @@ static void mt7615_set_rekey_data(struct ieee80211_hw *hw,
 	mt7615_mutex_release(dev);
 }
 #endif /* CONFIG_PM */
+
+static void mt6768_mgd_prepare_tx(struct ieee80211_hw *hw,
+				  struct ieee80211_vif *vif,
+				  struct ieee80211_prep_tx_info *info)
+{
+	struct mt7615_dev *dev = mt7615_hw_dev(hw);
+	struct mt7615_phy *phy = mt7615_hw_phy(hw);
+
+	mt7615_mutex_acquire(dev);
+	if (mt6768_mcu_set_join_channel(phy, vif, true))
+		dev_warn(dev->mt76.dev, "no channel for the join\n");
+	mt7615_mutex_release(dev);
+}
+
+static void mt6768_mgd_complete_tx(struct ieee80211_hw *hw,
+				   struct ieee80211_vif *vif,
+				   struct ieee80211_prep_tx_info *info)
+{
+	struct mt7615_dev *dev = mt7615_hw_dev(hw);
+	struct mt7615_phy *phy = mt7615_hw_phy(hw);
+
+	mt7615_mutex_acquire(dev);
+	mt6768_mcu_set_join_channel(phy, vif, false);
+	mt7615_mutex_release(dev);
+}
+
+/* no UNI commands: no ROC, scheduled scan or WoWLAN offload */
+static int
+mt6768_sta_state(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
+		 struct ieee80211_sta *sta, enum ieee80211_sta_state old_state,
+		 enum ieee80211_sta_state new_state)
+{
+	struct mt7615_sta *msta = (struct mt7615_sta *)sta->drv_priv;
+	struct mt7615_dev *dev = mt7615_hw_dev(hw);
+	struct mt7615_phy *phy = mt7615_hw_phy(hw);
+	int ret;
+
+	if (vif->type != NL80211_IFTYPE_STATION || sta->tdls)
+		return mt76_sta_state(hw, vif, sta, old_state, new_state);
+
+	if (old_state == IEEE80211_STA_AUTH && new_state == IEEE80211_STA_ASSOC)
+		msta->assoc = true;
+	else if (old_state == IEEE80211_STA_ASSOC &&
+		 new_state == IEEE80211_STA_AUTH) {
+		msta->assoc = false;
+		msta->vif->mt76.cipher = 0;
+	} else
+		return mt76_sta_state(hw, vif, sta, old_state, new_state);
+
+	mt7615_mutex_acquire(dev);
+	ret = mt7615_mcu_add_bss_info(phy, vif, sta, true);
+	if (!ret)
+		ret = mt7615_mcu_sta_add(phy, vif, sta, true);
+	mt7615_mutex_release(dev);
+
+	return ret;
+}
+
+void mt6768_init_ops(struct ieee80211_ops *ops)
+{
+	ops->sta_state = mt6768_sta_state;
+	ops->sta_add = NULL;
+	ops->sta_remove = NULL;
+	ops->mgd_prepare_tx = mt6768_mgd_prepare_tx;
+	ops->mgd_complete_tx = mt6768_mgd_complete_tx;
+	ops->remain_on_channel = NULL;
+	ops->cancel_remain_on_channel = NULL;
+	ops->sched_scan_start = NULL;
+	ops->sched_scan_stop = NULL;
+#ifdef CONFIG_PM
+	ops->suspend = NULL;
+	ops->resume = NULL;
+	ops->set_wakeup = NULL;
+	ops->set_rekey_data = NULL;
+#endif
+}
+EXPORT_SYMBOL_GPL(mt6768_init_ops);
 
 const struct ieee80211_ops mt7615_ops = {
 	.add_chanctx = ieee80211_emulate_add_chanctx,

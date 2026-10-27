@@ -14,6 +14,7 @@ mt7615-common-$(CONFIG_NL80211_TESTMODE) += testmode.o
 
 mt7615e-y := pci.o pci_init.o dma.o pci_mac.o mmio.o
 mt7615e-$(CONFIG_MT7622_WMAC) += soc.o
+mt7615e-$(CONFIG_MT6768_WMAC) += mt6768.o
 
 mt7663-usb-sdio-common-y := usb_sdio.o
 mt7663u-y := usb.o usb_mcu.o

@@ -5,6 +5,7 @@
  *         Felix Fietkau <nbd@nbd.name>
  */
 
+#include <linux/firmware.h>
 #include <linux/of.h>
 #include "mt7615.h"
 #include "eeprom.h"
@@ -78,7 +79,7 @@ static int mt7615_eeprom_load(struct mt7615_dev *dev, u32 addr)
 	BUILD_BUG_ON(MT7615_EEPROM_FULL_SIZE < MT7663_EEPROM_SIZE);
 
 	ret = mt76_eeprom_init(&dev->mt76, MT7615_EEPROM_FULL_SIZE);
-	if (ret < 0)
+	if (ret < 0 || !addr)
 		return ret;
 
 	return mt7615_efuse_init(dev, addr);
@@ -148,7 +149,10 @@ static void mt7615_eeprom_parse_hw_cap(struct mt7615_dev *dev)
 
 	mt7615_eeprom_parse_hw_band_cap(dev);
 
-	if (is_mt7663(&dev->mt76)) {
+	if (is_mt6768(&dev->mt76)) {
+		max_nss = 1;
+		tx_mask = 1;
+	} else if (is_mt7663(&dev->mt76)) {
 		max_nss = 2;
 		tx_mask = FIELD_GET(MT_EE_HW_CONF1_TX_MASK,
 				    eeprom[MT7663_EE_HW_CONF1]);
@@ -330,6 +334,26 @@ static void mt7615_cal_free_data(struct mt7615_dev *dev)
 	}
 }
 
+static int mt6768_eeprom_load_nvram(struct mt7615_dev *dev)
+{
+	const struct firmware *fw;
+	int ret;
+
+	ret = request_firmware(&fw, MT6768_NVRAM, dev->mt76.dev);
+	if (ret)
+		return ret;
+
+	if (fw->size < MT6768_NVRAM_SIZE) {
+		dev_err(dev->mt76.dev, "Invalid NVRAM settings\n");
+		ret = -EINVAL;
+	} else {
+		memcpy(dev->mt76.eeprom.data, fw->data, MT6768_NVRAM_SIZE);
+	}
+	release_firmware(fw);
+
+	return ret;
+}
+
 int mt7615_eeprom_init(struct mt7615_dev *dev, u32 addr)
 {
 	int ret;
@@ -337,6 +361,14 @@ int mt7615_eeprom_init(struct mt7615_dev *dev, u32 addr)
 	ret = mt7615_eeprom_load(dev, addr);
 	if (ret < 0)
 		return ret;
+
+	/* the firmware takes the vendor NVRAM settings instead of an EEPROM */
+	if (is_mt6768(&dev->mt76)) {
+		ret = mt6768_eeprom_load_nvram(dev);
+		if (ret)
+			return ret;
+		goto out;
+	}
 
 	ret = mt7615_check_eeprom(&dev->mt76);
 	if (ret && dev->mt76.otp.data) {
@@ -347,6 +379,7 @@ int mt7615_eeprom_init(struct mt7615_dev *dev, u32 addr)
 		mt7615_cal_free_data(dev);
 	}
 
+out:
 	mt7615_eeprom_parse_hw_cap(dev);
 	memcpy(dev->mphy.macaddr, dev->mt76.eeprom.data + MT_EE_MAC_ADDR,
 	       ETH_ALEN);

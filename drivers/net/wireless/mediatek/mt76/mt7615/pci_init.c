@@ -32,8 +32,12 @@ static void mt7615_pci_init_work(struct work_struct *work)
 
 static int mt7615_init_hardware(struct mt7615_dev *dev)
 {
-	u32 addr = mt7615_reg_map(dev, MT_EFUSE_BASE);
+	u32 addr = 0;
 	int ret, idx;
+
+	/* MT6768 has no efuse; calibration comes with the NVRAM settings */
+	if (!is_mt6768(&dev->mt76))
+		addr = mt7615_reg_map(dev, MT_EFUSE_BASE);
 
 	mt76_wr(dev, MT_INT_SOURCE_CSR, ~0);
 
@@ -42,7 +46,7 @@ static int mt7615_init_hardware(struct mt7615_dev *dev)
 	if (ret < 0)
 		return ret;
 
-	if (is_mt7663(&dev->mt76)) {
+	if (is_mt7663(&dev->mt76) && !is_mt6768(&dev->mt76)) {
 		/* Reset RGU */
 		mt76_clear(dev, MT_MCU_CIRQ_IRQ_SEL(4), BIT(1));
 		mt76_set(dev, MT_MCU_CIRQ_IRQ_SEL(4), BIT(1));

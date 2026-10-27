@@ -190,7 +190,20 @@ mt7615_check_offload_capability(struct mt7615_dev *dev)
 	struct ieee80211_hw *hw = mt76_hw(dev);
 	struct wiphy *wiphy = hw->wiphy;
 
-	if (mt7615_firmware_offload(dev)) {
+	if (is_mt6768(&dev->mt76)) {
+		/* the firmware tracks beacons and reports their loss */
+		ieee80211_hw_set(hw, CONNECTION_MONITOR);
+		/* the vendor driver configures it with LdpcRx=0 */
+		dev->mphy.sband_2g.sband.ht_cap.cap &= ~IEEE80211_HT_CAP_LDPC_CODING;
+		dev->mphy.sband_5g.sband.ht_cap.cap &= ~IEEE80211_HT_CAP_LDPC_CODING;
+		dev->mphy.sband_5g.sband.vht_cap.cap &= ~IEEE80211_VHT_CAP_RXLDPC;
+		wiphy->flags &= ~WIPHY_FLAG_4ADDR_STATION;
+		wiphy->max_sched_scan_plan_interval = 0;
+		wiphy->max_sched_scan_ie_len = 0;
+		wiphy->max_sched_scan_ssids = 0;
+		wiphy->max_match_sets = 0;
+		wiphy->max_sched_scan_reqs = 0;
+	} else if (mt7615_firmware_offload(dev)) {
 		ieee80211_hw_set(hw, SUPPORTS_PS);
 		ieee80211_hw_set(hw, SUPPORTS_DYNAMIC_PS);
 
@@ -278,6 +291,10 @@ void mt7615_init_txpower(struct mt7615_dev *dev,
 	struct mt76_power_limits limits;
 	u8 rate_val;
 
+	/* per-rate power comes from the NVRAM settings, in firmware */
+	if (is_mt6768(&dev->mt76))
+		return;
+
 	delta_idx = mt7615_eeprom_get_power_delta_index(dev, band);
 	rate_val = eep[delta_idx];
 	if ((rate_val & ~MT_EE_RATE_POWER_MASK) ==
@@ -316,12 +333,21 @@ void mt7615_init_txpower(struct mt7615_dev *dev,
 }
 EXPORT_SYMBOL_GPL(mt7615_init_txpower);
 
+static bool dbg_pm;
+module_param(dbg_pm, bool, 0644);
+
 void mt7615_init_work(struct mt7615_dev *dev)
 {
-	mt7615_mcu_set_eeprom(dev);
-	mt7615_mac_init(dev);
-	mt7615_phy_init(dev);
-	mt76_connac_mcu_del_wtbl_all(&dev->mt76);
+	/* its firmware owns the MAC */
+	if (is_mt6768(&dev->mt76)) {
+		mt6768_mcu_init_settings(dev);
+		dev->pm.enable = dbg_pm;
+	} else {
+		mt7615_mcu_set_eeprom(dev);
+		mt7615_mac_init(dev);
+		mt7615_phy_init(dev);
+		mt76_connac_mcu_del_wtbl_all(&dev->mt76);
+	}
 	mt7615_check_offload_capability(dev);
 }
 EXPORT_SYMBOL_GPL(mt7615_init_work);
@@ -347,7 +373,11 @@ mt7615_regd_notifier(struct wiphy *wiphy,
 	if (chandef->chan->flags & IEEE80211_CHAN_RADAR)
 		mt7615_dfs_init_radar_detector(phy);
 
-	if (mt7615_firmware_offload(phy->dev)) {
+	if (is_mt6768(&dev->mt76)) {
+		/* the first one comes before the MCU runs */
+		if (test_bit(MT76_STATE_MCU_RUNNING, &dev->mphy.state))
+			mt6768_mcu_set_domain(phy);
+	} else if (mt7615_firmware_offload(phy->dev)) {
 		mt76_connac_mcu_set_channel_domain(mphy);
 		mt76_connac_mcu_set_rate_txpower(mphy);
 	}
@@ -445,9 +475,40 @@ mt7615_cap_dbdc_disable(struct mt7615_dev *dev)
 	mt76_set_stream_caps(&dev->mphy, true);
 }
 
+/* the SoC bus has no remap window: bus 0x80000 is MCU SYSRAM */
+static const struct {
+	u32 chip, bus, size;
+} mt6768_bus_map[] = {
+	{ 0x80000000, 0x02000, 0x01000 }, /* MCU_CFG */
+	{ 0x50000000, 0x04000, 0x04000 }, /* PDMA */
+	{ 0x5000a000, 0x06000, 0x01000 }, /* DMASHDL */
+	{ 0x82060000, 0x08000, 0x04000 }, /* PLE */
+	{ 0x82068000, 0x0c000, 0x02000 }, /* PSE */
+	{ 0x8206c000, 0x0e000, 0x02000 }, /* PP */
+	{ 0x82070000, 0x10000, 0x10000 }, /* WF_PHY */
+	{ 0x820f0000, 0x20000, 0x10000 }, /* LMAC */
+	{ 0x820e0000, 0x30000, 0x10000 }, /* WTBL */
+	{ 0x40000000, 0x70000, 0x10000 }, /* WF_SYSRAM */
+	{ 0x81030000, 0xa3000, 0x01000 }, /* MCU_CFG_ON */
+	{ 0x820d0000, 0xae000, 0x01000 }, /* WFSYS_ON */
+	{ 0x80020000, 0xb0000, 0x10000 }, /* TOP_MISC_OFF */
+	{ 0x81020000, 0xc0000, 0x10000 }, /* TOP_MISC_ON */
+};
+
 u32 mt7615_reg_map(struct mt7615_dev *dev, u32 addr)
 {
 	u32 base, offset;
+	int i;
+
+	if (is_mt6768(&dev->mt76)) {
+		for (i = 0; i < ARRAY_SIZE(mt6768_bus_map); i++)
+			if (addr - mt6768_bus_map[i].chip < mt6768_bus_map[i].size)
+				return mt6768_bus_map[i].bus + addr -
+				       mt6768_bus_map[i].chip;
+
+		dev_WARN_ONCE(dev->mt76.dev, 1, "unmapped reg %08x\n", addr);
+		return 0x05000; /* reserved CONN_HIF window */
+	}
 
 	if (is_mt7663(&dev->mt76)) {
 		base = addr & MT7663_MCU_PCIE_REMAP_2_BASE;

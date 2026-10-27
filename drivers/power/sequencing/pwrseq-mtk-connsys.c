@@ -16,6 +16,7 @@
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/of_platform.h>
 #include <linux/of_reserved_mem.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
@@ -23,6 +24,8 @@
 #include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
 #include <linux/reset.h>
+#include <linux/sizes.h>
+#include <linux/unaligned.h>
 
 #define CONSYS_EMI_CTL			0x02150
 #define CONSYS_EMI_CTL_SW		BIT(21)
@@ -35,6 +38,10 @@
 #define CONSYS_CO_CLK1			0xc1204
 #define CONSYS_RESTORE			0xc1600
 #define CONSYS_RESTORE_DONE		BIT(23)
+
+#define CONSYS_LOG			0x36500
+#define CONSYS_LOG_SIZE			SZ_192K
+#define CONSYS_LOG_READY		0x38
 
 /* the MCU sees EMI and pericfg through windows the AP points at them */
 #define INFRA_CONN_EMI_REMAP		0x380
@@ -110,6 +117,35 @@ out:
 	return ret;
 }
 
+/*
+ * The MCU logs into rings in its EMI, at the offsets the host leaves in this
+ * block; with none set up it writes over its own code at offset 0.
+ */
+static int consys_log_init(struct pwrseq_mtk_connsys *cs)
+{
+	static const u32 ring[][2] = {	/* MCU, Wi-Fi, BT, GPS */
+		{ 0x40, 0x4000 }, { 0x4080, 0x10000 }, { 0x140c0, 0x10000 },
+		{ 0x24100, 0x8000 },
+	};
+	void *log;
+	int i;
+
+	log = memremap(cs->emi.start + CONSYS_LOG, CONSYS_LOG_SIZE,
+		       MEMREMAP_WC);
+	if (!log)
+		return -ENOMEM;
+
+	memset(log, 0, CONSYS_LOG_SIZE);
+	for (i = 0; i < ARRAY_SIZE(ring); i++) {
+		put_unaligned_le32(ring[i][0], log + 8 * i);
+		put_unaligned_le32(ring[i][1], log + 8 * i + 4);
+	}
+	memcpy(log + CONSYS_LOG_READY, "EMIFWLOG", 8);
+	memunmap(log);
+
+	return 0;
+}
+
 static int consys_remap(struct pwrseq_mtk_connsys *cs)
 {
 	int ret;
@@ -151,6 +187,10 @@ static int consys_boot(struct pwrseq_mtk_connsys *cs)
 		if (ret)
 			return ret;
 	}
+
+	ret = consys_log_init(cs);
+	if (ret)
+		return ret;
 
 	consys_rmw(cs, CONSYS_CO_CLK0, 0xffff, 0x708);
 	consys_rmw(cs, CONSYS_CO_CLK1, 0xff01, 0x600);
@@ -246,8 +286,14 @@ static const struct pwrseq_target_data pwrseq_mtk_connsys_bt = {
 	.unit = &pwrseq_mtk_connsys_unit,
 };
 
+static const struct pwrseq_target_data pwrseq_mtk_connsys_wlan = {
+	.name = "wlan",
+	.unit = &pwrseq_mtk_connsys_unit,
+};
+
 static const struct pwrseq_target_data *pwrseq_mtk_connsys_targets[] = {
 	&pwrseq_mtk_connsys_bt,
+	&pwrseq_mtk_connsys_wlan,
 	NULL
 };
 
@@ -257,6 +303,9 @@ static int pwrseq_mtk_connsys_match(struct pwrseq_device *pwrseq,
 	struct pwrseq_mtk_connsys *cs = pwrseq_device_get_drvdata(pwrseq);
 	struct device_node *np;
 	int ret;
+
+	if (dev->parent == cs->dev)
+		return PWRSEQ_MATCH_OK;
 
 	np = of_parse_phandle(dev->of_node, "mediatek,connsys", 0);
 	ret = np == cs->dev->of_node ? PWRSEQ_MATCH_OK : PWRSEQ_NO_MATCH;
@@ -327,7 +376,7 @@ static int pwrseq_mtk_connsys_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, PTR_ERR(pwrseq),
 				     "cannot register power sequencer\n");
 
-	return 0;
+	return devm_of_platform_populate(dev);
 }
 
 static const struct of_device_id pwrseq_mtk_connsys_of_match[] = {

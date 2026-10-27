@@ -2020,6 +2020,11 @@
 				 <&toprgu MT8183_TOPRGU_CONN_SW_RST>;
 			reset-names = "cpu", "sw";
 			status = "disabled";
+
+			wifi {
+				compatible = "mediatek,mt6768-wmac";
+				interrupts = <GIC_SPI 285 IRQ_TYPE_LEVEL_LOW>;
+			};
 		};
 
 		camsys: clock-controller@1a000000  {

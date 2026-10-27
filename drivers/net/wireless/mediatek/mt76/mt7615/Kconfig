@@ -18,6 +18,16 @@ config MT7615E
 
 	  To compile this driver as a module, choose M here.
 
+config MT6768_WMAC
+	bool "MT6768 (SoC) WMAC support"
+	depends on MT7615E
+	depends on ARCH_MEDIATEK || COMPILE_TEST
+	help
+	  This adds support for the Wi-Fi part of the CONNSYS block in
+	  MediaTek MT6768 SoCs (Helio G80/G85), an MT7663 core on the SoC
+	  bus. CONNSYS must be powered and its MCU booted by the
+	  Bluetooth driver first.
+
 config MT7622_WMAC
 	bool "MT7622 (SoC) WMAC support"
 	depends on MT7615E
