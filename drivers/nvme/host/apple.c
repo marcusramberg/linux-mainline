@@ -194,8 +194,23 @@ struct apple_nvme_sart_region {
 	size_t size;
 };
 
+/*
+ * Write gate: "apple,write-ranges" is <nsid lba-hi lba-lo count-hi count-lo>
+ * per range, count 0 meaning to the end. Absent, every write is refused.
+ */
+#define APPLE_NVME_MAX_WRITE_RANGES 4
+
+struct apple_nvme_write_range {
+	u32 nsid;
+	u64 start;
+	u64 count;
+};
+
 struct apple_nvme {
 	struct device *dev;
+
+	struct apple_nvme_write_range write_range[APPLE_NVME_MAX_WRITE_RANGES];
+	int nr_write_ranges;
 
 	void __iomem *mmio_coproc;
 	void __iomem *mmio_nvme;
@@ -925,6 +940,72 @@ static int apple_nvme_remove_sq(struct apple_nvme *anv)
 	return nvme_submit_sync_cmd(anv->ctrl.admin_q, &c, NULL, 0);
 }
 
+static bool apple_nvme_range_open(struct apple_nvme *anv, u32 nsid, u64 slba, u64 nlb)
+{
+	int i;
+
+	for (i = 0; i < anv->nr_write_ranges; i++) {
+		const struct apple_nvme_write_range *r = &anv->write_range[i];
+
+		if (nsid != r->nsid || slba < r->start)
+			continue;
+		if (!r->count || slba - r->start + nlb <= r->count)
+			return true;
+	}
+	return false;
+}
+
+static bool apple_nvme_write_allowed(struct apple_nvme *anv, bool admin,
+				     struct request *req, const struct nvme_command *c)
+{
+	u8 op = c->common.opcode;
+	u32 i, nr;
+
+	if (admin) {
+		switch (op) {
+		case nvme_admin_ns_mgmt:
+		case nvme_admin_activate_fw:
+		case nvme_admin_download_fw:
+		case nvme_admin_ns_attach:
+		case nvme_admin_format_nvm:
+		case nvme_admin_security_send:
+		case nvme_admin_sanitize_nvm:
+			return false;
+		default:
+			return op < 0xc0;	/* vendor commands: never */
+		}
+	}
+
+	switch (op) {
+	case nvme_cmd_flush:
+	case nvme_cmd_read:
+		return true;
+	case nvme_cmd_write:
+	case nvme_cmd_write_zeroes:
+		return apple_nvme_range_open(anv, le32_to_cpu(c->rw.nsid),
+					     le64_to_cpu(c->rw.slba),
+					     (u64)le16_to_cpu(c->rw.length) + 1);
+	case nvme_cmd_dsm:
+		/* the kernel's own discards only: their ranges are in reach */
+		if (!(req->rq_flags & RQF_SPECIAL_PAYLOAD))
+			return false;
+		nr = le32_to_cpu(c->dsm.nr) + 1;
+		if (req->special_vec.bv_len < nr * sizeof(struct nvme_dsm_range))
+			return false;
+		for (i = 0; i < nr; i++) {
+			const struct nvme_dsm_range *r =
+				(const struct nvme_dsm_range *)bvec_virt(&req->special_vec) + i;
+
+			if (!apple_nvme_range_open(anv, le32_to_cpu(c->dsm.nsid),
+						   le64_to_cpu(r->slba), le32_to_cpu(r->nlb)))
+				return false;
+		}
+		return true;
+	default:			/* write uncorrectable, copy, zone commands, ... */
+		return false;
+	}
+}
+
 static blk_status_t apple_nvme_queue_rq(struct blk_mq_hw_ctx *hctx,
 					const struct blk_mq_queue_data *bd)
 {
@@ -953,6 +1034,16 @@ static blk_status_t apple_nvme_queue_rq(struct blk_mq_hw_ctx *hctx,
 	ret = nvme_setup_cmd(ns, req);
 	if (ret)
 		return ret;
+
+	if (!apple_nvme_write_allowed(anv, q->is_adminq, req, cmnd)) {
+		dev_err_ratelimited(anv->dev,
+				    "write gate: refused %s opcode 0x%02x nsid %u lba %llu +%u\n",
+				    q->is_adminq ? "admin" : "I/O", cmnd->common.opcode,
+				    le32_to_cpu(cmnd->common.nsid),
+				    le64_to_cpu(cmnd->rw.slba), le16_to_cpu(cmnd->rw.length) + 1);
+		ret = BLK_STS_IOERR;
+		goto out_free_cmd;
+	}
 
 	if (blk_rq_nr_phys_segments(req)) {
 		ret = apple_nvme_map_data(anv, req, cmnd);
@@ -1644,6 +1735,34 @@ static struct apple_nvme *apple_nvme_alloc(struct platform_device *pdev)
 		ret = -ENODEV;
 		goto put_dev;
 	}
+
+	ret = of_property_count_u32_elems(dev->of_node, "apple,write-ranges");
+	if (ret > 0) {
+		u32 cells[5 * APPLE_NVME_MAX_WRITE_RANGES];
+		int i, n = ret / 5;
+
+		if (ret % 5 || n > APPLE_NVME_MAX_WRITE_RANGES ||
+		    of_property_read_u32_array(dev->of_node, "apple,write-ranges", cells, ret)) {
+			dev_err(dev, "write gate: bad apple,write-ranges, no writes at all\n");
+			n = 0;
+		}
+		for (i = 0; i < n; i++) {
+			struct apple_nvme_write_range *r = &anv->write_range[i];
+
+			r->nsid = cells[5 * i];
+			r->start = (u64)cells[5 * i + 1] << 32 | cells[5 * i + 2];
+			r->count = (u64)cells[5 * i + 3] << 32 | cells[5 * i + 4];
+			if (r->count)
+				dev_info(dev, "write gate: namespace %u, LBA %llu +%llu writable\n",
+					 r->nsid, r->start, r->count);
+			else
+				dev_info(dev, "write gate: namespace %u from LBA %llu writable\n",
+					 r->nsid, r->start);
+		}
+		anv->nr_write_ranges = n;
+	}
+	if (!anv->nr_write_ranges)
+		dev_info(dev, "write gate: closed, every write refused\n");
 
 	ret = devm_pm_domain_attach_list(dev, &apple_nvme_pd_data,
 					 &anv->pd_list);
