@@ -83,6 +83,11 @@
 		apple,smc = <&smc>;
 		interrupts-extended = <&pinctrl_aop 34 IRQ_TYPE_LEVEL_LOW>;
 		firmware-name = "apple/mtfw-d431.bin";
+		touchscreen-min-x = <151>;
+		touchscreen-size-x = <6207>;
+		touchscreen-min-y = <192>;
+		touchscreen-size-y = <14279>;
+		touchscreen-inverted-y;
 	};
 };
 
