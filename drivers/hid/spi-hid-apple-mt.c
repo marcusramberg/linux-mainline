@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Apple iPhone multitouch digitizer: HBPP firmware upload over SPI, then
- * Apple HID-over-SPI transport.
+ * Apple HID-over-SPI transport. Touches arrive as input report 0x75.
  *
- * Boot after drivers/input/touchscreen/apple_z2.c, transport after the Asahi
- * Linux spi-hid-apple driver (Copyright The Asahi Linux Contributors).
+ * Finger records after drivers/input/touchscreen/apple_z2.c; HBPP loader and
+ * HIDSPI exchange after Project Cascadia's apple_hidspi_touch.c.
  */
 
 #include <linux/crc16.h>
@@ -12,272 +12,54 @@
 #include <linux/delay.h>
 #include <linux/firmware.h>
 #include <linux/gpio/consumer.h>
-#include <linux/hid.h>
 #include <linux/input.h>
 #include <linux/input/mt.h>
 #include <linux/input/touchscreen.h>
 #include <linux/interrupt.h>
+#include <linux/kthread.h>
 #include <linux/mfd/macsmc.h>
 #include <linux/module.h>
-#include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
 #include <linux/spi/spi.h>
 #include <linux/unaligned.h>
-#include <linux/wait.h>
 
-/* HIDSPI config shipped with the firmware: Transfer Length, Padding Length,
- * Inter Stage Us, Max Input Report Length. */
-#define MT_PKT_LEN		516	/* 4 padding + 512-byte packet; crc covers the 512 */
-#define MT_PKT_DATA		(MT_PKT_LEN - 14)
-#define MT_PKT_MAGIC		0xdeadbeef
-#define MT_STATUS_LEN		8	/* padding + status word, both directions */
-#define MT_INTER_STAGE_US	200
-#define MT_MAX_REPORT		4096
-#define MT_DESC_MAX		512
-#define MT_MAX_IFACES		4
-#define MT_DEV_INFO		0xd0
-#define MT_READ_PACKET		0x20
-#define MT_WRITE_PACKET		0x40
-#define MT_IDLE_PACKET		0x80	/* host read request; device "nothing to send" */
-#define MT_WAIT			msecs_to_jiffies(1000)
+#define MT_CAL_FW		"apple/mtfw-d431-cal.bin"
 
 #define HBPP_FW_MAGIC		0x5746325A
-#define HBPP_CMD_BLOB		0x3001
 #define HBPP_INIT_PAYLOAD	0
 #define HBPP_SEND_BLOB		1
 #define HBPP_SEND_CALIBRATION	2
 #define HBPP_CAL_PROP		"apple,z2-cal-blob"
+#define HBPP_CMD_BLOB		0x3001
+#define HBPP_CMD_RMW		0x1e33
+#define HBPP_CMD_REQ_CAL	0x1f01
+#define HBPP_CHUNK		0x3f0
+#define HBPP_DATA_OK		0x4bc1
+#define HBPP_REG_OK		0x4ad1
 
-static const u8 mt_booted[4] = { 0xa0, 0x80, 0x00, 0x00 };
-/* D431 firmware "Interface Config": one HID interface "grape"; the device answers no info requests. */
-static const u8 mt_grape_desc[] = { 0x05, 0x0d, 0x09, 0x04, 0xa1, 0x01, 0x06, 0x00, 0xff, 0x09, 0x23, 0x95, 0x01, 0xa1, 0x00, 0x05, 0x0d, 0x09, 0x04, 0x76, 0xc7, 0x27, 0x82, 0x22, 0x01, 0xc0, 0xc0 };
-static const u8 mt_status_ok[4] = { 0xac, 0x27, 0x68, 0xd5 };
+#define MT_PAD			4
+#define MT_PKT_LEN		512
+#define MT_XFER			(MT_PAD + MT_PKT_LEN)
+#define MT_BUF_LEN		1100	/* 18 e1 + 14 + HBPP_CHUNK */
+#define MT_PKT_MAGIC		0xdeadbeef
+#define MT_STATUS_OK		0xd56827ac
+#define MT_STATUS_NAK		0x0e4fb139
+#define MT_TYPE_DEV_INPUT	0x20
+#define MT_MAX_FAILS		20
+#define MT_MIN_GAP_US		2000	/* bounds the read rate if the line sticks low */
 
-struct mt_msg_hdr {
-	u8 type;
-	u8 report;
-	u8 device;
-	u8 id;
-	__le16 rsplen;
-	__le16 length;
-} __packed;
-
-struct mt_packet {
-	__le32 magic;	/* HIDSPI "Padding Length" 4 */
-	u8 flags;
-	u8 device;
-	__le16 offset;
-	__le16 remain;
-	__le16 length;
-	u8 data[MT_PKT_DATA];
-	__le16 crc16;
-} __packed;
-
-struct hbpp_blob_hdr {
-	__le16 cmd;
-	__le16 len;
-	__le32 addr;
-	__le16 checksum;
-} __packed;
-
-struct mt_iface {
-	struct apple_mt *mt;
-	struct hid_device *hid;
-	u8 hid_desc[MT_DESC_MAX];
-	u32 hid_desc_len;
-	u32 id;
-	u32 max_input_report_len;
-	u8 name[32];
-	u8 reply_buf[MT_DESC_MAX];
-	u32 reply_len;
-	bool ready;
-};
-
-struct mt_report {
-	u8 *buf;
-	u32 length;
-	u32 offset;
-	u8 device;
-	u8 flags;
-};
-
-struct apple_mt {
-	struct spi_device *spi;
-	struct gpio_desc *reset_gpio;
-	const char *fw_name;
-
-	struct completion boot_irq;
-	bool hbpp_done;
-	bool crc_with_magic;
-	unsigned int dumped;
-
-	wait_queue_head_t wait;
-	struct mutex tx_lock;
-	struct input_dev *input;
-	/* debug: ring of raw 0x75 frames, [u16 len][512 bytes] each, exposed in debugfs */
-	u8 *ring;
-	unsigned int ring_pos;
-	struct debugfs_blob_wrapper ring_blob;
-	struct dentry *dbg;
-	struct touchscreen_properties props;
-	struct spi_message rx_msg, tx_msg;
-	struct spi_transfer rx_xfer, tx_xfer, rx_status_xfer, tx_status_xfer;
-	u8 *rx_buf, *tx_buf, *status_buf, *status_tx, *rx_tx;
-	u8 hbpp_ack[2];
-	u8 hbpp_ack_rx[2];
-	unsigned int hbpp_blobs;
-
-	struct mt_iface ifaces[MT_MAX_IFACES];
-	struct mt_report report;
-	u32 num_devices;
-	u16 vendor_id, product_id, version_number;
-	u8 serial[32];
-	u8 msg_id;
-	bool booted;
-};
-
-/* ---- HBPP upload ------------------------------------------------------ */
-
-static const u8 *hbpp_build_cal_blob(struct apple_mt *mt, u32 address,
-				     size_t *size)
-{
-	struct device *dev = &mt->spi->dev;
-	struct hbpp_blob_hdr *hdr;
-	u8 *cal_data;
-	int cal_size, i, err;
-	u16 checksum_hdr = 0;
-	u32 checksum = 0;
-
-	if (!device_property_present(dev, HBPP_CAL_PROP))
-		return NULL;
-	cal_size = device_property_count_u8(dev, HBPP_CAL_PROP);
-	if (cal_size < 0)
-		return ERR_PTR(cal_size);
-
-	*size = sizeof(*hdr) + cal_size + sizeof(__le32);
-	u8 *blob __free(kfree) = kzalloc(*size, GFP_KERNEL);
-	if (!blob)
-		return ERR_PTR(-ENOMEM);
-
-	hdr = (struct hbpp_blob_hdr *)blob;
-	hdr->cmd = cpu_to_le16(HBPP_CMD_BLOB);
-	hdr->len = cpu_to_le16(round_up(cal_size, 4) / 4);
-	hdr->addr = cpu_to_le32(address);
-	for (i = 2; i < 8; i++)
-		checksum_hdr += blob[i];
-	hdr->checksum = cpu_to_le16(checksum_hdr);
-
-	cal_data = blob + sizeof(*hdr);
-	err = device_property_read_u8_array(dev, HBPP_CAL_PROP, cal_data, cal_size);
-	if (err)
-		return ERR_PTR(err);
-	for (i = 0; i < cal_size; i++)
-		checksum += cal_data[i];
-	put_unaligned_le32(checksum, cal_data + cal_size);
-
-	return no_free_ptr(blob);
-}
-
-static int hbpp_send_blob(struct apple_mt *mt, const u8 *data, u32 size,
-			  bool init)
-{
-	struct spi_transfer xfers[2] = {
-		{ .tx_buf = data, .len = size, .bits_per_word = init ? 8 : 16 },
-		{ .tx_buf = mt->hbpp_ack, .rx_buf = mt->hbpp_ack_rx, .len = 2 },
-	};
-	int err;
-
-	reinit_completion(&mt->boot_irq);
-	err = spi_sync_transfer(mt->spi, xfers, 2);
-	if (err)
-		return err;
-	if (mt->hbpp_blobs++ < 4 || mt->hbpp_ack_rx[0] || mt->hbpp_ack_rx[1])
-		dev_info(&mt->spi->dev, "HBPP blob %u (%u bytes) ack %2ph\n",
-			 mt->hbpp_blobs, size, mt->hbpp_ack_rx);
-	/* The ack irq is not reliable; the bootloader is happy regardless. */
-	wait_for_completion_timeout(&mt->boot_irq, msecs_to_jiffies(20));
-	return 0;
-}
-
-static int hbpp_upload(struct apple_mt *mt)
-{
-	struct device *dev = &mt->spi->dev;
-	const struct firmware *fw __free(firmware) = NULL;
-	size_t idx = 8, size;
-	u32 cmd, addr;
-	int err;
-
-	err = request_firmware(&fw, mt->fw_name, dev);
-	if (err)
-		return dev_err_probe(dev, err, "firmware %s\n", mt->fw_name);
-	if (fw->size < 8 || get_unaligned_le32(fw->data) != HBPP_FW_MAGIC ||
-	    get_unaligned_le32(fw->data + 4) != 1)
-		return -EINVAL;
-
-	while (idx < fw->size) {
-		if (fw->size - idx < 8)
-			return -EINVAL;
-		cmd = get_unaligned_le32(fw->data + idx);
-		idx += 4;
-		switch (cmd) {
-		case HBPP_INIT_PAYLOAD:
-		case HBPP_SEND_BLOB:
-			size = get_unaligned_le32(fw->data + idx);
-			idx += 4;
-			if (fw->size - idx < size)
-				return -EINVAL;
-			err = hbpp_send_blob(mt, fw->data + idx, size,
-					     cmd == HBPP_INIT_PAYLOAD);
-			if (err)
-				return err;
-			idx += size;
-			break;
-		case HBPP_SEND_CALIBRATION:
-			addr = get_unaligned_le32(fw->data + idx);
-			idx += 4;
-			const u8 *cal __free(kfree) = hbpp_build_cal_blob(mt, addr, &size);
-			if (IS_ERR(cal))
-				return PTR_ERR(cal);
-			if (cal) {
-				err = hbpp_send_blob(mt, cal, size, false);
-				if (err)
-					return err;
-			}
-			break;
-		default:
-			return -EINVAL;
-		}
-		idx = round_up(idx, 4);
-	}
-	return 0;
-}
-
-/* ---- HID-over-SPI transport ------------------------------------------- */
-
-/*
- * Every packet transaction ends with a second stage under the same chip select,
- * MT_INTER_STAGE_US later: both sides send [zero padding][status word].
- */
-static bool mt_status(struct apple_mt *mt)
-{
-	if (memcmp(mt->status_buf + 4, mt_status_ok, 4)) {
-		dev_warn_ratelimited(&mt->spi->dev, "status %8ph\n", mt->status_buf);
-		return false;
-	}
-	return true;
-}
-
-static void mt_read_packet(struct apple_mt *mt);
-
-/* Report 0x75: header, finger count at byte 22, 30-byte Z2-style records from byte 32. */
 #define MT_REPORT_TOUCH		0x75
-#define MT_NFINGERS_OFFSET	22
 #define MT_FINGERS_OFFSET	32
+#define MT_FINGER_LEN		30
+#define MT_MAX_SLOTS		16
+#define MT_TOUCH_GONE		0
 #define MT_TOUCH_STARTED	3
 #define MT_TOUCH_MOVED		4
-#define MT_MAX_SLOTS		10
+#define MT_TOUCH_LIFTED		7
+
 #define MT_RING_FRAMES		128
 #define MT_RING_SLOT		514
 
@@ -299,511 +81,451 @@ struct mt_finger {
 	__le16 multi;
 } __packed;
 
+struct apple_mt {
+	struct spi_device *spi;
+	struct gpio_desc *reset_gpio;
+	const char *fw_name;
+	struct input_dev *input;
+	struct touchscreen_properties props;
+	int min_x, max_x, min_y, max_y;
+	bool inv_x, inv_y;
+	DECLARE_BITMAP(down, 256);	/* finger ids reported down */
+	DECLARE_BITMAP(prev, 256);	/* finger ids in the previous frame */
+	struct task_struct *thread;
+	struct completion irq_done;
+	u8 *tx, *rx, *last, *pkt;
+	unsigned int fails;
+	/* debug: ring of raw 0x75 frames, [u16 len][512 bytes] each, exposed in debugfs */
+	u8 *ring;
+	unsigned int ring_pos;
+	struct debugfs_blob_wrapper ring_blob;
+	struct dentry *dbg;
+};
+
+static bool raw;
+module_param(raw, bool, 0644);
+MODULE_PARM_DESC(raw, "report the panel's raw positions, for calibration");
+
+static unsigned int release_ms = 60;
+module_param(release_ms, uint, 0644);
+MODULE_PARM_DESC(release_ms, "let go of fingers after this long without a frame");
+
+static int mt_xfer(struct apple_mt *mt, size_t len)
+{
+	struct spi_transfer t = { .tx_buf = mt->tx, .rx_buf = mt->rx, .len = len };
+
+	return spi_sync_transfer(mt->spi, &t, 1);
+}
+
+/* ---- HBPP upload ------------------------------------------------------ */
+
+static int hbpp_ack(struct apple_mt *mt)
+{
+	int err;
+
+	mt->tx[0] = 0x1a;
+	mt->tx[1] = 0xa1;
+	err = mt_xfer(mt, 2);
+	return err ? err : get_unaligned_be16(mt->rx);
+}
+
+/* One packet of the file (LE halfwords), sent as 16-bit words. */
+static int hbpp_send(struct apple_mt *mt, const u8 *pkt, size_t len)
+{
+	u16 cmd = get_unaligned_le16(pkt);
+	int want = cmd == HBPP_CMD_RMW ? HBPP_REG_OK : HBPP_DATA_OK;
+	size_t i, off = cmd == HBPP_CMD_BLOB ? 2 : 0;
+	int st, tries;
+
+	if (len & 1 || len + off > MT_BUF_LEN)
+		return -EINVAL;
+	for (tries = 0; tries < 5; tries++) {
+		mt->tx[0] = 0x18;
+		mt->tx[1] = 0xe1;
+		for (i = 0; i < len; i++)
+			mt->tx[off + i] = pkt[i ^ 1];
+		st = mt_xfer(mt, len + off);
+		if (st)
+			return st;
+		/* the firmware starts within ms of REQ_CAL: the last RMW must beat it */
+		if (cmd == HBPP_CMD_BLOB)
+			msleep(20);
+		else
+			usleep_range(200, 400);
+		st = hbpp_ack(mt);
+		if (cmd == HBPP_CMD_REQ_CAL) {
+			dev_info(&mt->spi->dev, "calibration request: %04x\n", st);
+			return 0;
+		}
+		/* the last RMW starts the firmware: its padding (deadbeef) answers */
+		if (st == want || st == 0xefbe)
+			return 0;
+	}
+	dev_err(&mt->spi->dev, "HBPP packet %04x: status %04x\n", cmd, st);
+	return -EIO;
+}
+
+/* A 0x3001 blob (header, csum16, payload, sum32), resent in pieces. */
+static int hbpp_blob(struct apple_mt *mt, const u8 *b, size_t len)
+{
+	u8 *pkt = mt->pkt;
+	u32 addr = get_unaligned_le32(b + 4), sum;
+	size_t plen = len - 14, off, n, i;
+	int err;
+
+	for (off = 0; off < plen; off += n) {
+		n = min_t(size_t, plen - off, HBPP_CHUNK);
+		put_unaligned_le16(HBPP_CMD_BLOB, pkt);
+		put_unaligned_le16((n + 3) / 4, pkt + 2);
+		put_unaligned_le32(addr + off, pkt + 4);
+		put_unaligned_le16(pkt[2] + pkt[3] + pkt[4] + pkt[5] + pkt[6] + pkt[7], pkt + 8);
+		memcpy(pkt + 10, b + 10 + off, n);
+		for (sum = 0, i = 0; i < n; i++)
+			sum += b[10 + off + i];
+		put_unaligned_le32(sum, pkt + 10 + n);
+		err = hbpp_send(mt, pkt, 14 + n);
+		if (err)
+			return err;
+	}
+	return 0;
+}
+
+/* The firmware has no calibration of its own: without this it reads stale SRAM. */
+static int hbpp_calibration(struct apple_mt *mt, u32 addr)
+{
+	struct device *dev = &mt->spi->dev;
+	const struct firmware *fw __free(firmware) = NULL;
+	const u8 *cal = NULL;
+	u32 sum = 0;
+	int len, i;
+
+	len = device_property_count_u8(dev, HBPP_CAL_PROP);
+	if (len <= 16) {	/* the ADT's "syscfg/MtCl" placeholder is no blob */
+		if (firmware_request_nowarn(&fw, MT_CAL_FW, dev)) {
+			dev_warn(dev, "no calibration: expect phantom contacts\n");
+			return 0;
+		}
+		cal = fw->data;
+		len = fw->size;
+	}
+
+	u8 *b __free(kfree) = kzalloc(14 + len, GFP_KERNEL);
+	if (!b)
+		return -ENOMEM;
+	put_unaligned_le16(HBPP_CMD_BLOB, b);
+	put_unaligned_le16((len + 3) / 4, b + 2);
+	put_unaligned_le32(addr, b + 4);
+	put_unaligned_le16(b[2] + b[3] + b[4] + b[5] + b[6] + b[7], b + 8);
+	if (cal)
+		memcpy(b + 10, cal, len);
+	else
+		device_property_read_u8_array(dev, HBPP_CAL_PROP, b + 10, len);
+	for (i = 0; i < len; i++)
+		sum += b[10 + i];
+	put_unaligned_le32(sum, b + 10 + len);
+	dev_info(dev, "calibration: %d bytes (%s)\n", len, cal ? MT_CAL_FW : HBPP_CAL_PROP);
+	return hbpp_blob(mt, b, 14 + len);
+}
+
+static int hbpp_upload(struct apple_mt *mt)
+{
+	struct device *dev = &mt->spi->dev;
+	const struct firmware *fw __free(firmware) = NULL;
+	size_t idx = 8;
+	int err;
+
+	err = request_firmware(&fw, mt->fw_name, dev);
+	if (err)
+		return err;
+	if (fw->size < 8 || get_unaligned_le32(fw->data) != HBPP_FW_MAGIC ||
+	    get_unaligned_le32(fw->data + 4) != 1)
+		return -EINVAL;
+
+	while (idx + 8 <= fw->size) {
+		u32 cmd = get_unaligned_le32(fw->data + idx);
+		u32 arg = get_unaligned_le32(fw->data + idx + 4);
+		const u8 *p = fw->data + idx + 8;
+
+		idx += 8;
+		switch (cmd) {
+		case HBPP_INIT_PAYLOAD:
+		case HBPP_SEND_BLOB:
+			if (arg > fw->size - idx)
+				return -EINVAL;
+			if (cmd == HBPP_INIT_PAYLOAD)
+				err = 0;	/* the D431 firmware has none */
+			else if (arg >= 14 && get_unaligned_le16(p) == HBPP_CMD_BLOB)
+				err = hbpp_blob(mt, p, arg);
+			else
+				err = hbpp_send(mt, p, arg);
+			idx += arg;
+			break;
+		case HBPP_SEND_CALIBRATION:
+			err = hbpp_calibration(mt, arg);
+			break;
+		default:
+			return -EINVAL;
+		}
+		if (err)
+			return err;
+		idx = round_up(idx, 4);
+	}
+	return 0;
+}
+
+/* ---- HID-over-SPI transport ------------------------------------------- */
+
+/*
+ * Our filler (0xff) for the device's packet, then the status stage under the
+ * same chip select. It must stay 0xff: an all-zero packet has a valid CRC and
+ * sends the firmware back to its bootloader.
+ */
+static bool mt_exchange(struct apple_mt *mt)
+{
+	struct spi_transfer t[2] = {
+		{ .delay = { .value = 300, .unit = SPI_DELAY_UNIT_USECS } },	/* CS Delay */
+		{ .tx_buf = mt->tx, .rx_buf = mt->rx, .len = MT_XFER, .cs_change = 1 },
+	};
+	struct spi_transfer st = {
+		.tx_buf = mt->tx, .rx_buf = mt->rx + MT_XFER, .len = MT_PAD + 4,
+	};
+	const u8 *pk = mt->rx + MT_PAD;
+	u16 len;
+	bool ok;
+
+	memset(mt->tx, 0xff, MT_XFER);
+	if (spi_sync_transfer(mt->spi, t, 2))
+		return false;
+
+	len = get_unaligned_le16(pk + 6);
+	ok = crc16(0, pk, MT_PKT_LEN - 2) == get_unaligned_le16(pk + MT_PKT_LEN - 2);
+	if (!ok && len >= 10 && len <= MT_PKT_LEN - 10) {
+		u16 mlen = get_unaligned_le16(pk + 8 + 6);
+
+		ok = mlen + 10 <= len &&
+		     crc16(0, pk + 8, 8 + mlen) == get_unaligned_le16(pk + 16 + mlen);
+	}
+	if (!ok && len == 4 && pk[0] == MT_TYPE_DEV_INPUT)	/* messages carry no CRC */
+		ok = true;
+
+	usleep_range(200, 250);			/* Inter Stage Us */
+	memset(mt->tx, 0xff, MT_PAD);
+	put_unaligned_le32(ok ? MT_STATUS_OK : MT_STATUS_NAK, mt->tx + MT_PAD);
+	spi_sync_transfer(mt->spi, &st, 1);
+	usleep_range(250, 300);			/* Inter Transaction Us */
+	return ok && get_unaligned_le32(mt->rx) == MT_PKT_MAGIC;
+}
+
+static bool mt_is_down(const struct mt_finger *f)
+{
+	return f->state == MT_TOUCH_STARTED || f->state == MT_TOUCH_MOVED;
+}
+
+/*
+ * Lifted, never reported down and not in the last frame: a tap that fell
+ * between reads. A contact seen in the last frame is not one: D431 contacts
+ * can go 1 -> 7 -> 0 without ever reaching 3.
+ */
+static bool mt_is_missed(struct apple_mt *mt, const struct mt_finger *f)
+{
+	return (f->state == MT_TOUCH_LIFTED || f->state == MT_TOUCH_GONE) &&
+	       !test_bit(f->finger, mt->down) && !test_bit(f->finger, mt->prev);
+}
+
+static void mt_report_finger(struct apple_mt *mt, const struct mt_finger *f, bool down)
+{
+	struct input_dev *input = mt->input;
+	int slot = input_mt_get_slot_by_key(input, f->finger);
+	int x, y;
+
+	if (slot < 0)
+		return;
+	input_mt_slot(input, slot);
+	if (!input_mt_report_slot_state(input, MT_TOOL_FINGER, down))
+		return;
+	x = (s16)le16_to_cpu(f->abs_x);
+	y = (s16)le16_to_cpu(f->abs_y);
+	if (!raw) {
+		/* inverted axes turn around min..max: the panel's edges are not at 0 */
+		if (mt->inv_x)
+			x = mt->min_x + mt->max_x - x;
+		if (mt->inv_y)
+			y = mt->min_y + mt->max_y - y;
+		x = clamp(x, mt->min_x, mt->max_x);
+		y = clamp(y, mt->min_y, mt->max_y);
+	}
+	touchscreen_report_pos(input, &mt->props, max(x, 0), max(y, 0), true);
+	input_report_abs(input, ABS_MT_TOUCH_MAJOR, le16_to_cpu(f->touch_major));
+	input_report_abs(input, ABS_MT_TOUCH_MINOR, le16_to_cpu(f->touch_minor));
+	input_report_abs(input, ABS_MT_ORIENTATION, (s16)le16_to_cpu(f->orientation));
+}
+
+/* evdev drops repeated values: forget lifted positions, or a second tap on the spot has none. */
+static void mt_sync_frame(struct apple_mt *mt)
+{
+	struct input_mt *imt = mt->input->mt;
+	int i;
+
+	input_mt_sync_frame(mt->input);
+	input_sync(mt->input);
+	for (i = 0; i < imt->num_slots; i++) {
+		struct input_mt_slot *slot = &imt->slots[i];
+
+		if (input_mt_get_value(slot, ABS_MT_TRACKING_ID) < 0) {
+			input_mt_set_value(slot, ABS_MT_POSITION_X, INT_MIN);
+			input_mt_set_value(slot, ABS_MT_POSITION_Y, INT_MIN);
+		}
+	}
+}
+
+/* Report 0x75: finger bytes at 16, count at 22, 30-byte records at 32, then a trailer. */
 static void mt_parse_touches(struct apple_mt *mt, const u8 *msg, size_t len)
 {
 	const struct mt_finger *f = (const void *)(msg + MT_FINGERS_OFFSET);
-	unsigned int i, n;
+	bool missed = false;
+	int i, n;
 
 	if (len < MT_FINGERS_OFFSET)
 		return;
-	n = get_unaligned_le16(msg + MT_NFINGERS_OFFSET);
-	n = min_t(size_t, n, (len - MT_FINGERS_OFFSET) / sizeof(*f));
-	for (i = 0; i < n; i++, f++) {
-		bool down = f->state == MT_TOUCH_STARTED || f->state == MT_TOUCH_MOVED;
-		int slot = input_mt_get_slot_by_key(mt->input, f->finger);
+	n = min_t(int, get_unaligned_le32(msg + 16) / MT_FINGER_LEN,
+		  (len - MT_FINGERS_OFFSET) / MT_FINGER_LEN);
 
-		if (slot < 0)
-			continue;
-		input_mt_slot(mt->input, slot);
-		if (!input_mt_report_slot_state(mt->input, MT_TOOL_FINGER, down))
-			continue;
-		touchscreen_report_pos(mt->input, &mt->props, le16_to_cpu(f->abs_x),
-				       le16_to_cpu(f->abs_y), true);
-		input_report_abs(mt->input, ABS_MT_TOUCH_MAJOR, le16_to_cpu(f->touch_major));
-		input_report_abs(mt->input, ABS_MT_TOUCH_MINOR, le16_to_cpu(f->touch_minor));
-		input_report_abs(mt->input, ABS_MT_ORIENTATION, le16_to_cpu(f->orientation));
+	for (i = 0; i < n; i++)
+		missed |= mt_is_missed(mt, &f[i]);
+	if (missed) {
+		for (i = 0; i < n; i++)
+			mt_report_finger(mt, &f[i], mt_is_down(&f[i]) || mt_is_missed(mt, &f[i]));
+		mt_sync_frame(mt);
 	}
-	input_mt_sync_frame(mt->input);
-	input_sync(mt->input);
+	bitmap_zero(mt->prev, 256);
+	for (i = 0; i < n; i++)
+		set_bit(f[i].finger, mt->prev);
+
+	for (i = 0; i < n; i++) {
+		bool down = mt_is_down(&f[i]);
+
+		mt_report_finger(mt, &f[i], down);
+		if (down)
+			set_bit(f[i].finger, mt->down);
+		else
+			clear_bit(f[i].finger, mt->down);
+	}
+	mt_sync_frame(mt);
 }
 
-static int mt_input_init(struct apple_mt *mt)
+/* Returns true if a touch frame was reported. */
+static bool mt_read(struct apple_mt *mt)
 {
-	struct input_dev *input = devm_input_allocate_device(&mt->spi->dev);
+	const u8 *pk = mt->rx + MT_PAD, *m = pk + 8;
+	u8 *slot;
+	u16 len, mlen;
 
-	if (!input)
-		return -ENOMEM;
-	input->name = "Apple SPI multitouch";
-	input->phys = "spi-hid-apple-mt/input0";
-	input->id.bustype = BUS_SPI;
-	input->id.vendor = 0x05ac;
-	/* ponytail: ranges from observed frames; override with touchscreen-size-x/y in the DT. */
-	input_set_abs_params(input, ABS_MT_POSITION_X, 0, 0x1fff, 0, 0);
-	input_set_abs_params(input, ABS_MT_POSITION_Y, 0, 0x3fff, 0, 0);
-	input_set_abs_params(input, ABS_MT_TOUCH_MAJOR, 0, 0xffff, 0, 0);
-	input_set_abs_params(input, ABS_MT_TOUCH_MINOR, 0, 0xffff, 0, 0);
-	input_set_abs_params(input, ABS_MT_ORIENTATION, 0, 0xffff, 0, 0);
-	touchscreen_parse_properties(input, true, &mt->props);
-	if (input_mt_init_slots(input, MT_MAX_SLOTS, INPUT_MT_DIRECT))
-		return -ENOMEM;
-	mt->input = input;
-	return input_register_device(input);
+	if (!mt_exchange(mt)) {
+		mt->fails++;
+		return false;
+	}
+	mt->fails = 0;
+	if (!memcmp(mt->last, mt->rx, MT_XFER))
+		return false;
+	memcpy(mt->last, mt->rx, MT_XFER);
+
+	len = get_unaligned_le16(pk + 6);
+	if (pk[0] != MT_TYPE_DEV_INPUT || len < 10)
+		return false;
+	mlen = get_unaligned_le16(m + 6);
+	if (m[0] != 0x10 || m[1] != MT_REPORT_TOUCH || mlen + 10 > len)
+		return false;
+
+	slot = mt->ring + (mt->ring_pos++ % MT_RING_FRAMES) * MT_RING_SLOT;
+	put_unaligned_le16(mlen, slot);
+	memcpy(slot + 2, m + 8, mlen);
+	mt_parse_touches(mt, m + 8, mlen);
+	return true;
 }
 
-static u16 mt_pkt_crc(struct apple_mt *mt, const u8 *buf, bool with_magic)
-{
-	size_t skip = with_magic ? 0 : sizeof(__le32);
+/* ---- boot and thread --------------------------------------------------- */
 
-	return crc16(0, buf + skip, offsetof(struct mt_packet, crc16) - skip);
-}
-
-static int mt_request(struct apple_mt *mt, u8 target, u8 type, u8 report,
-		      u8 device, u16 resp_len, const u8 *buf, size_t len)
-{
-	struct mt_packet *pkt = (struct mt_packet *)mt->tx_buf;
-	struct mt_msg_hdr *hdr = (struct mt_msg_hdr *)pkt->data;
-	u16 crc;
-	int err;
-
-	if (len > sizeof(pkt->data) - sizeof(*hdr) - 2)
-		return -EINVAL;
-
-	err = mutex_lock_interruptible(&mt->tx_lock);
-	if (err)
-		return err;
-
-	memset(pkt, 0, sizeof(*pkt));
-	pkt->magic = cpu_to_le32(MT_PKT_MAGIC);
-	pkt->flags = MT_WRITE_PACKET;
-	pkt->device = target;
-	pkt->length = cpu_to_le16(sizeof(*hdr) + len + 2);
-	hdr->type = type;
-	hdr->report = report;
-	hdr->device = device;
-	hdr->id = mt->msg_id++;
-	hdr->rsplen = cpu_to_le16(resp_len);
-	hdr->length = cpu_to_le16(len);
-	if (len)
-		memcpy(pkt->data + sizeof(*hdr), buf, len);
-	crc = crc16(0, pkt->data, sizeof(*hdr) + len);
-	put_unaligned_le16(crc, pkt->data + sizeof(*hdr) + len);
-	pkt->crc16 = cpu_to_le16(mt_pkt_crc(mt, mt->tx_buf, mt->crc_with_magic));
-
-	memset(mt->status_buf, 0, MT_STATUS_LEN);
-	err = spi_sync(mt->spi, &mt->tx_msg);
-	if (!err && !mt_status(mt)) {
-		mt->crc_with_magic = !mt->crc_with_magic;
-		dev_info(&mt->spi->dev, "trying tx crc with magic = %d\n", mt->crc_with_magic);
-	}
-	mutex_unlock(&mt->tx_lock);
-	/* ponytail: poll for the response instead of trusting the irq line. */
-	if (!err) {
-		usleep_range(2000, 2500);
-		mt_read_packet(mt);
-	}
-	return err ? err : (int)len;
-}
-
-static struct mt_iface *mt_get_iface(struct apple_mt *mt, u32 id)
-{
-	return id < MT_MAX_IFACES ? &mt->ifaces[id] : NULL;
-}
-
-static int mt_ll_start(struct hid_device *hdev) { return 0; }
-static void mt_ll_stop(struct hid_device *hdev) {}
-
-static int mt_ll_open(struct hid_device *hdev)
-{
-	struct mt_iface *iface = hdev->driver_data;
-
-	iface->ready = true;
-	return 0;
-}
-
-static void mt_ll_close(struct hid_device *hdev)
-{
-	struct mt_iface *iface = hdev->driver_data;
-
-	iface->ready = false;
-}
-
-static int mt_ll_parse(struct hid_device *hdev)
-{
-	struct mt_iface *iface = hdev->driver_data;
-
-	return hid_parse_report(hdev, iface->hid_desc, iface->hid_desc_len);
-}
-
-static int mt_ll_raw_request(struct hid_device *hdev, unsigned char reportnum,
-			     __u8 *buf, size_t len, unsigned char rtype,
-			     int reqtype)
-{
-	struct mt_iface *iface = hdev->driver_data;
-	struct apple_mt *mt = iface->mt;
-	int ret;
-
-	switch (reqtype) {
-	case HID_REQ_GET_REPORT:
-		if (rtype != HID_FEATURE_REPORT)
-			return -EINVAL;
-		iface->reply_len = 0;
-		ret = mt_request(mt, iface->id, 0x32, reportnum, 0, len, NULL, 0);
-		if (ret < 0)
-			return ret;
-		ret = wait_event_interruptible_timeout(mt->wait, iface->reply_len, MT_WAIT);
-		if (ret == 0)
-			return -ETIMEDOUT;
-		if (ret < 0)
-			return ret;
-		memcpy(buf, iface->reply_buf, min_t(size_t, len, iface->reply_len));
-		return iface->reply_len;
-	case HID_REQ_SET_REPORT:
-		if (buf[0] != reportnum)
-			return -EINVAL;
-		return mt_request(mt, iface->id, 0x52, reportnum, 0, 2, buf, len);
-	default:
-		return -EIO;
-	}
-}
-
-static int mt_ll_output_report(struct hid_device *hdev, __u8 *buf, size_t len)
-{
-	struct mt_iface *iface = hdev->driver_data;
-
-	return mt_request(iface->mt, iface->id, 0x51, iface->id, 0, 0, buf, len);
-}
-
-static const struct hid_ll_driver mt_hid_ll = {
-	.start = mt_ll_start,
-	.stop = mt_ll_stop,
-	.open = mt_ll_open,
-	.close = mt_ll_close,
-	.parse = mt_ll_parse,
-	.raw_request = mt_ll_raw_request,
-	.output_report = mt_ll_output_report,
-	.max_buffer_size = MT_MAX_REPORT,
-};
-
-static int mt_register_hid(struct apple_mt *mt, struct mt_iface *iface)
-{
-	struct hid_device *hid;
-	int ret;
-
-	hid = hid_allocate_device();
-	if (IS_ERR(hid))
-		return PTR_ERR(hid);
-
-	snprintf(hid->name, sizeof(hid->name), "Apple SPI %s", iface->name);
-	snprintf(hid->phys, sizeof(hid->phys), "%s (%x)", dev_name(&mt->spi->dev), iface->id);
-	strscpy(hid->uniq, mt->serial, sizeof(hid->uniq));
-	hid->ll_driver = &mt_hid_ll;
-	hid->bus = BUS_SPI;
-	hid->vendor = mt->vendor_id;
-	hid->product = mt->product_id;
-	hid->version = mt->version_number;
-	hid->dev.parent = &mt->spi->dev;
-	hid->driver_data = iface;
-
-	ret = hid_add_device(hid);
-	if (ret) {
-		hid_destroy_device(hid);
-		return ret;
-	}
-	iface->hid = hid;
-	return 0;
-}
-
-struct mt_device_info {
-	__le16 u0[2];
-	__le16 num_devices;
-	__le16 vendor_id;
-	__le16 product_id;
-	__le16 version_number;
-	__le16 vendor_str[2];
-	__le16 product_str[2];
-	__le16 serial_str[2];
-} __packed;
-
-struct mt_iface_info {
-	u8 u_0;
-	u8 interface_num;
-	u8 u_2, u_3, u_4;
-	u8 country_code;
-	__le16 max_input_report_len;
-	__le16 max_output_report_len;
-	__le16 max_control_report_len;
-	__le16 name_offset;
-	__le16 name_length;
-} __packed;
-
-static void mt_process_response(struct apple_mt *mt, u32 device,
-				struct mt_msg_hdr *hdr, u8 *pl, size_t len)
-{
-	struct device *dev = &mt->spi->dev;
-	struct mt_iface *iface;
-	u16 off, slen;
-
-	if (hdr->type == 0x20 && hdr->report == 0x01) {
-		struct mt_device_info *info = (void *)pl;
-
-		if (mt->vendor_id || len < sizeof(*info))
-			return;
-		mt->num_devices = min_t(u32, le16_to_cpu(info->num_devices), MT_MAX_IFACES);
-		mt->vendor_id = le16_to_cpu(info->vendor_id);
-		mt->product_id = le16_to_cpu(info->product_id);
-		mt->version_number = le16_to_cpu(info->version_number);
-		off = le16_to_cpu(info->serial_str[0]);
-		slen = le16_to_cpu(info->serial_str[1]);
-		if (off < len && slen <= len - off && slen < sizeof(mt->serial)) {
-			memcpy(mt->serial, pl + off, slen);
-			mt->serial[slen] = '\0';
-		}
-		dev_info(dev, "device %04x:%04x v%u, %u interfaces\n", mt->vendor_id,
-			 mt->product_id, mt->version_number, mt->num_devices);
-		wake_up_interruptible(&mt->wait);
-		return;
-	}
-
-	if (hdr->type == 0x20 && hdr->report == 0x02) {
-		struct mt_iface_info *info = (void *)pl;
-
-		iface = mt_get_iface(mt, hdr->device);
-		if (!iface || iface->max_input_report_len || len < sizeof(*info))
-			return;
-		iface->max_input_report_len = le16_to_cpu(info->max_input_report_len);
-		off = le16_to_cpu(info->name_offset);
-		slen = le16_to_cpu(info->name_length);
-		if (off < len && slen <= len - off && slen < sizeof(iface->name)) {
-			memcpy(iface->name, pl + off, slen);
-			iface->name[slen] = '\0';
-		}
-		dev_info(dev, "interface %u: %s\n", hdr->device, iface->name);
-		wake_up_interruptible(&mt->wait);
-		return;
-	}
-
-	if (hdr->type == 0x20 && hdr->report == 0x10) {
-		iface = mt_get_iface(mt, hdr->device);
-		if (!iface || iface->hid_desc_len || len > MT_DESC_MAX)
-			return;
-		memcpy(iface->hid_desc, pl, len);
-		iface->hid_desc_len = len;
-		wake_up_interruptible(&mt->wait);
-		return;
-	}
-
-	if (hdr->type == 0x32) {
-		iface = mt_get_iface(mt, device);
-		if (!iface || len < 1 || len > sizeof(iface->reply_buf))
-			return;
-		memcpy(iface->reply_buf, pl, len);
-		iface->reply_len = len;
-		wake_up_interruptible(&mt->wait);
-		return;
-	}
-
-	dev_dbg(dev, "unhandled response type %02x rep %02x dev %02x len %zu\n",
-		hdr->type, hdr->report, hdr->device, len);
-}
-
-static void mt_process_message(struct apple_mt *mt, u8 *data, size_t length,
-			       u8 device, u8 flags)
-{
-	struct mt_msg_hdr *hdr = (struct mt_msg_hdr *)data;
-	struct mt_iface *iface;
-	size_t pl_len;
-	u8 *pl;
-
-	if (crc16(0, data, length - 2) != get_unaligned_le16(data + length - 2)) {
-		dev_warn_ratelimited(&mt->spi->dev, "message crc mismatch\n");
-		return;
-	}
-	pl_len = le16_to_cpu(hdr->length);
-	if (!pl_len || pl_len + sizeof(*hdr) + 2 > length)
-		return;
-	pl = data + sizeof(*hdr);
-
-	if (flags == MT_WRITE_PACKET) {
-		mt_process_response(mt, device, hdr, pl, pl_len);
-		return;
-	}
-	if (flags != MT_READ_PACKET || hdr->type != 0x10)
-		return;
-	iface = mt_get_iface(mt, device);
-	if (pl[0] == MT_REPORT_TOUCH && mt->input) {
-		u8 *slot = mt->ring + (mt->ring_pos++ % MT_RING_FRAMES) * MT_RING_SLOT;
-
-		put_unaligned_le16(min_t(size_t, pl_len, MT_RING_SLOT - 2), slot);
-		memcpy(slot + 2, pl, min_t(size_t, pl_len, MT_RING_SLOT - 2));
-		mt_parse_touches(mt, pl, pl_len);
-	}
-	if (iface && iface->hid && iface->ready)
-		hid_input_report(iface->hid, HID_INPUT_REPORT, pl, pl_len, 1);
-	else
-		dev_dbg(&mt->spi->dev, "input report for idle iface %u len %zu\n",
-			device, pl_len);
-}
-
-static void mt_assemble(struct apple_mt *mt, struct mt_packet *pkt)
-{
-	struct mt_report *rep = &mt->report;
-	size_t length = le16_to_cpu(pkt->length);
-	size_t remain = le16_to_cpu(pkt->remain);
-	size_t offset = le16_to_cpu(pkt->offset);
-
-	if (offset + length + remain > MT_MAX_REPORT)
-		return;
-	if (pkt->device != rep->device || pkt->flags != rep->flags || offset != rep->offset) {
-		rep->offset = rep->length = 0;
-		rep->device = rep->flags = 0;
-	}
-
-	if (offset == 0) {
-		memcpy(rep->buf, pkt->data, length);
-		rep->offset = length;
-		rep->length = length + remain;
-		rep->device = pkt->device;
-		rep->flags = pkt->flags;
-	} else if (offset == rep->offset && offset + length + remain == rep->length) {
-		memcpy(rep->buf + offset, pkt->data, length);
-		rep->offset += length;
-		if (rep->offset == rep->length) {
-			mt_process_message(mt, rep->buf, rep->length, rep->device, rep->flags);
-			rep->offset = rep->length = 0;
-			rep->device = rep->flags = 0;
-		}
-	}
-}
-
-static void mt_read_packet(struct apple_mt *mt)
-{
-	struct mt_packet *pkt = (struct mt_packet *)mt->rx_buf;
-	size_t length;
-	int err;
-
-	memset(mt->status_buf, 0, MT_STATUS_LEN);
-	err = spi_sync(mt->spi, &mt->rx_msg);
-	if (err) {
-		dev_warn(&mt->spi->dev, "rx failed: %d\n", err);
-		return;
-	}
-	if (le32_to_cpu(pkt->magic) != MT_PKT_MAGIC) {
-		dev_warn_ratelimited(&mt->spi->dev, "bad packet magic: %16ph\n", mt->rx_buf);
-		return;
-	}
-	if (pkt->flags == MT_IDLE_PACKET) {
-		dev_info_ratelimited(&mt->spi->dev, "idle packet, status %8ph\n", mt->status_buf);
-		return;
-	}
-	if (mt_pkt_crc(mt, mt->rx_buf, false) != le16_to_cpu(pkt->crc16)) {
-		dev_warn_ratelimited(&mt->spi->dev, "packet crc mismatch: %16ph\n", mt->rx_buf);
-		return;
-	}
-	mt_status(mt);
-	length = le16_to_cpu(pkt->length);
-	if (length < sizeof(struct mt_msg_hdr) + 2) {
-		if (length == sizeof(mt_booted) && !memcmp(pkt->data, mt_booted, length)) {
-			if (!mt->booted) {
-				mt->booted = true;
-				wake_up_interruptible(&mt->wait);
-			}
-		} else {
-			dev_info_ratelimited(&mt->spi->dev, "short packet, raw %16ph\n", mt->rx_buf);
-		}
-		return;
-	}
-	if (length > sizeof(pkt->data))
-		return;
-	if (pkt->offset == 0 && pkt->remain == 0)
-		mt_process_message(mt, pkt->data, length, pkt->device, pkt->flags);
-	else
-		mt_assemble(mt, pkt);
-}
-
+/* Level-triggered: stays masked until the thread has read, so it cannot storm. */
 static irqreturn_t mt_irq(int irq, void *data)
 {
 	struct apple_mt *mt = data;
 
-	if (!mt->hbpp_done)
-		complete(&mt->boot_irq);
-	else
-		mt_read_packet(mt);
+	disable_irq_nosync(irq);
+	complete(&mt->irq_done);
 	return IRQ_HANDLED;
+}
+
+static void mt_wait(struct apple_mt *mt, unsigned int ms)
+{
+	int irq = mt->spi->irq;
+
+	usleep_range(MT_MIN_GAP_US, MT_MIN_GAP_US + 500);
+	reinit_completion(&mt->irq_done);
+	enable_irq(irq);
+	if (!wait_for_completion_timeout(&mt->irq_done, msecs_to_jiffies(ms))) {
+		disable_irq(irq);
+		if (try_wait_for_completion(&mt->irq_done))
+			enable_irq(irq);
+	}
 }
 
 static int mt_boot(struct apple_mt *mt)
 {
 	struct device *dev = &mt->spi->dev;
-	int err, i;
+	int err;
 
-	mt->hbpp_done = false;
-	mt->booted = false;
-	reinit_completion(&mt->boot_irq);
-	enable_irq(mt->spi->irq);
+	gpiod_set_value_cansleep(mt->reset_gpio, 1);
+	msleep(10);
 	gpiod_set_value_cansleep(mt->reset_gpio, 0);
-	if (!wait_for_completion_timeout(&mt->boot_irq, msecs_to_jiffies(20)))
-		dev_warn(dev, "no HBPP ready irq after reset, uploading anyway\n");
+	msleep(20);
 
 	err = hbpp_upload(mt);
 	if (err) {
 		dev_err(dev, "HBPP upload failed: %d\n", err);
-		goto fail;
+		return err;
 	}
-	dev_info(dev, "HBPP upload done\n");
-	mt->hbpp_done = true;
+	msleep(40);
+	memset(mt->last, 0, MT_XFER);
+	bitmap_zero(mt->down, 256);
+	bitmap_zero(mt->prev, 256);
+	mt->fails = 0;
+	dev_info(dev, "firmware running\n");
+	return 0;
+}
 
-	err = wait_event_interruptible_timeout(mt->wait, mt->booted, MT_WAIT);
-	if (err == 0)
-		err = -ENODEV;
-	if (err < 0) {
-		dev_err(dev, "no boot message after upload: %d\n", err);
-		goto fail;
-	}
+static int mt_thread(void *data)
+{
+	struct apple_mt *mt = data;
+	unsigned long last_frame = jiffies;
 
-	mt_request(mt, MT_DEV_INFO, 0x20, 0x01, MT_DEV_INFO, 0, NULL, 0);
-	err = wait_event_interruptible_timeout(mt->wait, mt->vendor_id, MT_WAIT);
-	if (err == 0) {
-		struct mt_iface *iface = &mt->ifaces[0];
-
-		dev_info(dev, "no device info, using the built-in interface config\n");
-		mt->vendor_id = 0x05ac;
-		mt->num_devices = 1;
-		strscpy(iface->name, "grape", sizeof(iface->name));
-		memcpy(iface->hid_desc, mt_grape_desc, sizeof(mt_grape_desc));
-		iface->hid_desc_len = sizeof(mt_grape_desc);
-		iface->max_input_report_len = MT_MAX_REPORT;
-		return 0;	/* Linux's HID parser rejects Apple's vendor descriptor; the input device carries touch */
-	} else if (err < 0) {
-		dev_err(dev, "no device info: %d\n", err);
-		goto fail;
-	}
-
-	for (i = 0; i < mt->num_devices; i++) {
-		struct mt_iface *iface = &mt->ifaces[i];
-
-		iface->id = i;
-		iface->mt = mt;
-		if (!iface->max_input_report_len) {
-			mt_request(mt, MT_DEV_INFO, 0x20, 0x02, i, MT_DESC_MAX, NULL, 0);
-			wait_event_interruptible_timeout(mt->wait, iface->max_input_report_len, MT_WAIT);
-		}
-		if (!iface->hid_desc_len) {
-			mt_request(mt, MT_DEV_INFO, 0x20, 0x10, i, MT_DESC_MAX, NULL, 0);
-			wait_event_interruptible_timeout(mt->wait, iface->hid_desc_len, MT_WAIT);
-		}
-		if (!iface->hid_desc_len) {
-			dev_warn(dev, "interface %u: no HID descriptor\n", i);
+	while (!kthread_should_stop()) {
+		if (mt_boot(mt)) {
+			msleep_interruptible(5000);
 			continue;
 		}
-		if (!iface->hid && mt_register_hid(mt, iface))
-			dev_warn(dev, "interface %u: HID registration failed\n", i);
+		while (!kthread_should_stop() && mt->fails < MT_MAX_FAILS) {
+			bool idle;
+
+			if (mt_read(mt)) {
+				int more = 8;
+
+				while (more-- && mt_read(mt))
+					;
+				last_frame = jiffies;
+			} else if (!bitmap_empty(mt->down, 256) &&
+				   time_after(jiffies, last_frame + msecs_to_jiffies(release_ms))) {
+				/* the firmware streams while touched, so the lift was lost */
+				mt_sync_frame(mt);
+				bitmap_zero(mt->down, 256);
+				bitmap_zero(mt->prev, 256);
+			}
+			idle = bitmap_empty(mt->down, 256);
+			mt_wait(mt, idle ? 1000 : release_ms);
+		}
+		if (!kthread_should_stop())
+			dev_warn(&mt->spi->dev, "firmware not answering, reloading\n");
 	}
 	return 0;
-
-fail:
-	gpiod_set_value_cansleep(mt->reset_gpio, 1);
-	disable_irq(mt->spi->irq);
-	return err;
 }
 
 static bool smc_done;
@@ -831,6 +553,38 @@ static int mt_smc_write(struct device *dev, smc_key key, u32 val)
 	return err;
 }
 
+static int mt_input_init(struct apple_mt *mt)
+{
+	struct input_dev *input = devm_input_allocate_device(&mt->spi->dev);
+	int err;
+
+	if (!input)
+		return -ENOMEM;
+	input->name = "Apple iPhone touchscreen";
+	input->phys = "spi-hid-apple-mt/input0";
+	input->id.bustype = BUS_SPI;
+	input->id.vendor = 0x05ac;
+	input_set_abs_params(input, ABS_MT_POSITION_X, 0, 0x1fff, 0, 0);
+	input_set_abs_params(input, ABS_MT_POSITION_Y, 0, 0x3fff, 0, 0);
+	input_set_abs_params(input, ABS_MT_TOUCH_MAJOR, 0, 0xffff, 0, 0);
+	input_set_abs_params(input, ABS_MT_TOUCH_MINOR, 0, 0xffff, 0, 0);
+	input_set_abs_params(input, ABS_MT_ORIENTATION, -32768, 32767, 0, 0);
+	touchscreen_parse_properties(input, true, &mt->props);
+	mt->min_x = input_abs_get_min(input, ABS_MT_POSITION_X);
+	mt->max_x = input_abs_get_max(input, ABS_MT_POSITION_X);
+	mt->min_y = input_abs_get_min(input, ABS_MT_POSITION_Y);
+	mt->max_y = input_abs_get_max(input, ABS_MT_POSITION_Y);
+	mt->inv_x = mt->props.invert_x;
+	mt->inv_y = mt->props.invert_y;
+	mt->props.invert_x = false;
+	mt->props.invert_y = false;
+	err = input_mt_init_slots(input, MT_MAX_SLOTS, INPUT_MT_DIRECT | INPUT_MT_DROP_UNUSED);
+	if (err)
+		return err;
+	mt->input = input;
+	return input_register_device(input);
+}
+
 static int mt_probe(struct spi_device *spi)
 {
 	struct device *dev = &spi->dev;
@@ -841,62 +595,28 @@ static int mt_probe(struct spi_device *spi)
 	if (!mt)
 		return -ENOMEM;
 	mt->spi = spi;
-	mt->rx_buf = devm_kzalloc(dev, MT_MAX_REPORT, GFP_KERNEL);
-	mt->tx_buf = devm_kzalloc(dev, MT_PKT_LEN, GFP_KERNEL);
-	mt->status_buf = devm_kzalloc(dev, MT_STATUS_LEN, GFP_KERNEL);
-	mt->status_tx = devm_kzalloc(dev, MT_STATUS_LEN, GFP_KERNEL);
-	mt->rx_tx = devm_kzalloc(dev, MT_PKT_LEN, GFP_KERNEL);
-	mt->report.buf = devm_kzalloc(dev, MT_MAX_REPORT, GFP_KERNEL);
-	if (!mt->rx_buf || !mt->tx_buf || !mt->status_buf || !mt->report.buf)
+	mt->tx = devm_kzalloc(dev, MT_BUF_LEN, GFP_KERNEL);
+	mt->rx = devm_kzalloc(dev, MT_BUF_LEN, GFP_KERNEL);
+	mt->last = devm_kzalloc(dev, MT_BUF_LEN, GFP_KERNEL);
+	mt->pkt = devm_kzalloc(dev, MT_BUF_LEN, GFP_KERNEL);
+	mt->ring = devm_kzalloc(dev, MT_RING_FRAMES * MT_RING_SLOT, GFP_KERNEL);
+	if (!mt->tx || !mt->rx || !mt->last || !mt->pkt || !mt->ring)
 		return -ENOMEM;
-	mt->hbpp_ack[0] = 0x1a;
-	mt->hbpp_ack[1] = 0xa1;
-	init_completion(&mt->boot_irq);
-	init_waitqueue_head(&mt->wait);
-	mutex_init(&mt->tx_lock);
+	init_completion(&mt->irq_done);
 	spi_set_drvdata(spi, mt);
-
-	/* The status stage's padding is zero, unlike packets (HSMTransferDevice::handleInterrupt). */
-	memcpy(mt->status_tx + 4, mt_status_ok, 4);
-	/* A read sends a full frame too: padding, a header with flags 0x80 and a crc. */
-	put_unaligned_le32(MT_PKT_MAGIC, mt->rx_tx);
-	mt->rx_tx[4] = MT_IDLE_PACKET;
-	put_unaligned_le16(mt_pkt_crc(mt, mt->rx_tx, false), mt->rx_tx + offsetof(struct mt_packet, crc16));
-	mt->rx_xfer.tx_buf = mt->rx_tx;
-	mt->rx_xfer.rx_buf = mt->rx_buf;
-	mt->rx_xfer.len = MT_PKT_LEN;
-	mt->rx_xfer.delay.unit = SPI_DELAY_UNIT_USECS;
-	mt->rx_xfer.delay.value = MT_INTER_STAGE_US;
-	mt->rx_status_xfer.tx_buf = mt->status_tx;
-	mt->rx_status_xfer.rx_buf = mt->status_buf;
-	mt->rx_status_xfer.len = MT_STATUS_LEN;
-	spi_message_init(&mt->rx_msg);
-	spi_message_add_tail(&mt->rx_xfer, &mt->rx_msg);
-	spi_message_add_tail(&mt->rx_status_xfer, &mt->rx_msg);
-	mt->tx_xfer.tx_buf = mt->tx_buf;
-	mt->tx_xfer.len = MT_PKT_LEN;
-	mt->tx_xfer.delay.unit = SPI_DELAY_UNIT_USECS;
-	mt->tx_xfer.delay.value = MT_INTER_STAGE_US;
-	mt->tx_status_xfer = mt->rx_status_xfer;
-	spi_message_init(&mt->tx_msg);
-	spi_message_add_tail(&mt->tx_xfer, &mt->tx_msg);
-	spi_message_add_tail(&mt->tx_status_xfer, &mt->tx_msg);
-	mt->crc_with_magic = false;
 
 	err = device_property_read_string(dev, "firmware-name", &mt->fw_name);
 	if (err)
 		return dev_err_probe(dev, err, "firmware-name\n");
 
 	/*
-	 * ADT: function-power_ldo = pKW4(rBK3, 0x5020000), function-clock_enable =
-	 * pKW4(gP00, 0x8000000); the enable value is ORed in. Written once per boot so
-	 * a re-bind can test other values written through debugfs.
+	 * ADT: function-clock_enable = pKW4(gP00, 0x8000000); the enable value is
+	 * ORed in. The LDO (rBK3) is "Always Powered": iOS only enables the clock.
 	 */
 	if (!smc_done) {
-		/* The LDO (rBK3) is "Always Powered" in the firmware config; iOS only enables the clock. */
 		err = mt_smc_write(dev, SMC_KEY(gP00), 0x8000001);
 		if (err)
-			return dev_err_probe(dev, err, "smc power/clock\n");
+			return dev_err_probe(dev, err, "smc clock\n");
 		smc_done = true;
 		msleep(10);
 	}
@@ -905,37 +625,41 @@ static int mt_probe(struct spi_device *spi)
 	if (IS_ERR(mt->reset_gpio))
 		return dev_err_probe(dev, PTR_ERR(mt->reset_gpio), "reset gpio\n");
 
-	err = devm_request_threaded_irq(dev, spi->irq, NULL, mt_irq,
-					IRQF_ONESHOT | IRQF_NO_AUTOEN, "apple-mt", mt);
+	err = devm_request_irq(dev, spi->irq, mt_irq, IRQF_NO_AUTOEN, "apple-mt", mt);
 	if (err)
 		return dev_err_probe(dev, err, "irq\n");
 
 	err = mt_input_init(mt);
 	if (err)
 		return dev_err_probe(dev, err, "input device\n");
-	mt->ring = devm_kzalloc(dev, MT_RING_FRAMES * MT_RING_SLOT, GFP_KERNEL);
-	if (!mt->ring)
-		return -ENOMEM;
+
 	mt->ring_blob.data = mt->ring;
 	mt->ring_blob.size = MT_RING_FRAMES * MT_RING_SLOT;
 	mt->dbg = debugfs_create_dir("apple-mt", NULL);
 	debugfs_create_blob("frames", 0400, mt->dbg, &mt->ring_blob);
 	debugfs_create_u32("ring_pos", 0400, mt->dbg, &mt->ring_pos);
 
-	usleep_range(5000, 10000);
-	return mt_boot(mt);
+	/* the status stage is a second message: no suspend between the two */
+	err = pm_runtime_resume_and_get(spi->controller->dev.parent);
+	if (err)
+		return err;
+
+	mt->thread = kthread_run(mt_thread, mt, "apple-mt");
+	if (IS_ERR(mt->thread)) {
+		pm_runtime_put(spi->controller->dev.parent);
+		return PTR_ERR(mt->thread);
+	}
+	return 0;
 }
 
 static void mt_remove(struct spi_device *spi)
 {
 	struct apple_mt *mt = spi_get_drvdata(spi);
-	int i;
 
-	disable_irq(spi->irq);
-	for (i = 0; i < MT_MAX_IFACES; i++)
-		if (mt->ifaces[i].hid)
-			hid_destroy_device(mt->ifaces[i].hid);
+	debugfs_remove(mt->dbg);
+	kthread_stop(mt->thread);
 	gpiod_set_value_cansleep(mt->reset_gpio, 1);
+	pm_runtime_put(spi->controller->dev.parent);
 }
 
 static const struct of_device_id mt_of_match[] = {
@@ -956,3 +680,4 @@ module_spi_driver(mt_driver);
 
 MODULE_DESCRIPTION("Apple HBPP-booted HID-over-SPI multitouch driver");
 MODULE_LICENSE("GPL");
+MODULE_FIRMWARE(MT_CAL_FW);
