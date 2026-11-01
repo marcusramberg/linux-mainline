@@ -29,6 +29,14 @@
 		clock-frequency = <24000000>;
 	};
 
+	/* MCA NCO reference: M1's rate, consistent with 48 kHz measured on D431 */
+	nco_clkref: clock-ref-nco {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <900000000>;
+		clock-output-names = "nco_ref";
+	};
+
 	/* ADT clock-id 369; 200 MHz assumed gave 0.96 MHz on spi1, so 24 MHz in */
 	clk_spi: clock-spi {
 		compatible = "fixed-clock";
@@ -456,6 +464,87 @@
 			status = "okay";
 		};
 
+		sio_dart: iommu@235004000 {
+			compatible = "apple,t8030-dart", "apple,t8103-dart";
+			reg = <0x2 0x35004000 0x0 0x4000>;
+			interrupts = <AIC_IRQ 482 IRQ_TYPE_LEVEL_HIGH>;
+			#iommu-cells = <1>;
+			status = "disabled";
+		};
+
+		sio_mbox: mbox@236408000 {
+			compatible = "apple,t8030-asc-mailbox",
+				     "apple,t8015-asc-mailbox";
+			reg = <0x2 0x36408000 0x0 0x4000>;
+			interrupts = <AIC_IRQ 485 IRQ_TYPE_LEVEL_HIGH>,
+				     <AIC_IRQ 484 IRQ_TYPE_LEVEL_HIGH>,
+				     <AIC_IRQ 486 IRQ_TYPE_LEVEL_HIGH>,
+				     <AIC_IRQ 487 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "send-empty", "send-not-empty",
+					  "recv-empty", "recv-not-empty";
+			#mbox-cells = <0>;
+			status = "disabled";
+		};
+
+		/*
+		 * iBoot does not load SmartIO on our boot path: the driver loads
+		 * the Mach-O, whose patchbay must already hold WrAd = 0x236400000
+		 * and CpAd = 0x236000000 (iBoot's job).
+		 */
+		sio: sio@236400000 {
+			compatible = "apple,t8030-sio", "apple,sio";
+			reg = <0x2 0x36400000 0x0 0x8000>;
+			dma-channels = <128>;
+			#dma-cells = <1>;
+			mboxes = <&sio_mbox>;
+			iommus = <&sio_dart 0>;
+			firmware-name = "apple/sio-t8030.macho";
+			/* raw ADT properties, packed by the driver */
+			map-range = [43 53 49 4d 00 00 00 35 02 00 00 00 00 10 00 00 00 00 00 00 49 4e 49 4d 00 00 20 3d 02 00 00 00 00 00 10 00 00 00 00 00];
+			device-type = [49 50 53 64 04 00 00 00 00 00 00 00 52 41 55 64 09 00 00 00 00 00 00 00 41 43 4d 64 0c 00 00 00 00 00 00 00 41 50 44 64 01 00 00 00 0c 00 00 00 45 4c 41 64 0d 00 00 00 00 00 00 00];
+			dmashim = [49 50 53 53 00 00 10 35 02 00 00 00 00 00 10 00 00 00 00 00 0d 00 00 00 0e 00 00 00 0f 00 00 00 00 40 00 00 52 41 55 53 00 00 20 35 02 00 00 00 00 00 10 00 00 00 00 00 01 00 00 00 02 00 00 00 03 00 00 00 00 40 00 00 44 55 41 53 00 00 30 38 02 00 00 00 00 00 10 00 00 00 00 00 14 00 00 00 15 00 00 00 16 00 00 00 00 40 00 00 44 55 41 41 00 00 b0 4a 02 00 00 00 00 00 10 00 00 00 00 00 37 00 00 00 38 00 00 00 39 00 00 00 00 40 00 00];
+			status = "disabled";
+		};
+
+		i2c2: i2c@235018000 {
+			compatible = "apple,t8030-i2c", "apple,t8103-i2c";
+			reg = <0x2 0x35018000 0x0 0x1000>;
+			clocks = <&clkref>;
+			interrupts = <AIC_IRQ 459 IRQ_TYPE_LEVEL_HIGH>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		nco: clock-controller@23b044000 {
+			compatible = "apple,t8030-nco", "apple,t8103-nco";
+			reg = <0x2 0x3b044000 0x0 0x14000>;
+			clocks = <&nco_clkref>;
+			#clock-cells = <1>;
+		};
+
+		mca: i2s@238400000 {
+			compatible = "apple,t8030-mca";
+			reg = <0x2 0x38400000 0x0 0x18000>,
+			      <0x2 0x38300000 0x0 0x30000>,
+			      <0x2 0x3b0400b4 0x0 0x18>;
+			interrupts = <AIC_IRQ 448 IRQ_TYPE_LEVEL_HIGH>,
+				     <AIC_IRQ 449 IRQ_TYPE_LEVEL_HIGH>,
+				     <AIC_IRQ 450 IRQ_TYPE_LEVEL_HIGH>,
+				     <AIC_IRQ 451 IRQ_TYPE_LEVEL_HIGH>,
+				     <AIC_IRQ 452 IRQ_TYPE_LEVEL_HIGH>,
+				     <AIC_IRQ 453 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&nco 0>, <&nco 1>, <&nco 2>,
+				 <&nco 3>, <&nco 4>, <&nco 4>;
+			power-domains = <&ps_audio>, <&ps_mca0>, <&ps_mca1>,
+					<&ps_mca2>, <&ps_mca3>, <&ps_mca4>, <&ps_mca5>;
+			/* SIO channels from the ADT mcaNx dma-channels; port b of cluster 5 */
+			dmas = <&sio 0x7a>, <&sio 0x7b>;
+			dma-names = "tx5b", "rx5b";
+			#sound-dai-cells = <1>;
+			status = "disabled";
+		};
+
 		spi1: spi@235104000 {
 			compatible = "apple,t8030-spi", "apple,s5l-spi";
 			reg = <0x2 0x35104000 0x0 0x4000>;
@@ -464,6 +553,17 @@
 			power-domains = <&ps_spi1>;
 			pinctrl-0 = <&spi1_pins>;
 			pinctrl-names = "default";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		spi3: spi@23510c000 {
+			compatible = "apple,t8030-spi", "apple,s5l-spi";
+			reg = <0x2 0x3510c000 0x0 0x4000>;
+			interrupts = <AIC_IRQ 447 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&clk_spi>;
+			power-domains = <&ps_spi3>;
 			#address-cells = <1>;
 			#size-cells = <0>;
 			status = "disabled";

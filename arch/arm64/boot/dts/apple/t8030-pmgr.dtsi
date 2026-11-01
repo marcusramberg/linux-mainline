@@ -78,4 +78,87 @@
 		label = "spi1";
 		power-domains = <&ps_spi_p>;
 	};
+
+	ps_spi3: power-controller@80208 {
+		compatible = "apple,t8030-pmgr-pwrstate",
+			     "apple,t8103-pmgr-pwrstate";
+		reg = <0x80208 4>;
+		#power-domain-cells = <0>;
+		#reset-cells = <0>;
+		label = "spi3";
+		power-domains = <&ps_spi_p>;
+	};
+};
+
+/* AUDIO/MCA0-5 from the ADT pmgr device list: psreg 3 base 0x80200, psidx 12-17; AUDIO is gate 87 */
+&pmgr {
+	ps_audio: power-controller@801e8 {
+		compatible = "apple,t8030-pmgr-pwrstate",
+			     "apple,t8103-pmgr-pwrstate";
+		reg = <0x801e8 4>;
+		#power-domain-cells = <0>;
+		#reset-cells = <0>;
+		label = "audio";
+		apple,always-on;
+	};
+
+	ps_mca0: power-controller@80260 {
+		compatible = "apple,t8030-pmgr-pwrstate",
+			     "apple,t8103-pmgr-pwrstate";
+		reg = <0x80260 4>;
+		#power-domain-cells = <0>;
+		#reset-cells = <0>;
+		label = "mca0";
+		power-domains = <&ps_audio>;
+	};
+
+	ps_mca1: power-controller@80268 {
+		compatible = "apple,t8030-pmgr-pwrstate",
+			     "apple,t8103-pmgr-pwrstate";
+		reg = <0x80268 4>;
+		#power-domain-cells = <0>;
+		#reset-cells = <0>;
+		label = "mca1";
+		power-domains = <&ps_audio>;
+	};
+
+	ps_mca2: power-controller@80270 {
+		compatible = "apple,t8030-pmgr-pwrstate",
+			     "apple,t8103-pmgr-pwrstate";
+		reg = <0x80270 4>;
+		#power-domain-cells = <0>;
+		#reset-cells = <0>;
+		label = "mca2";
+		power-domains = <&ps_audio>;
+	};
+
+	ps_mca3: power-controller@80278 {
+		compatible = "apple,t8030-pmgr-pwrstate",
+			     "apple,t8103-pmgr-pwrstate";
+		reg = <0x80278 4>;
+		#power-domain-cells = <0>;
+		#reset-cells = <0>;
+		label = "mca3";
+		power-domains = <&ps_audio>;
+	};
+
+	ps_mca4: power-controller@80280 {
+		compatible = "apple,t8030-pmgr-pwrstate",
+			     "apple,t8103-pmgr-pwrstate";
+		reg = <0x80280 4>;
+		#power-domain-cells = <0>;
+		#reset-cells = <0>;
+		label = "mca4";
+		power-domains = <&ps_audio>;
+	};
+
+	ps_mca5: power-controller@80288 {
+		compatible = "apple,t8030-pmgr-pwrstate",
+			     "apple,t8103-pmgr-pwrstate";
+		reg = <0x80288 4>;
+		#power-domain-cells = <0>;
+		#reset-cells = <0>;
+		label = "mca5";
+		power-domains = <&ps_audio>;
+	};
 };
