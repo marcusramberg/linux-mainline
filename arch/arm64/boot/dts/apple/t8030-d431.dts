@@ -109,6 +109,8 @@
 };
 
 &{/soc/nvme@27acc0000} {
+	/* nsid 1 whole; everything else is firmware-owned */
+	apple,write-ranges = <1 0 0 0 0>;
 	status = "okay";
 };
 
