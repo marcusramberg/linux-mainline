@@ -29,14 +29,11 @@
 		clock-frequency = <24000000>;
 	};
 
-	/*
-	 * SPI reference clock (ADT clock-id 369), rate not yet measured.
-	 * A too-high value only slows the bus down; adjust after measuring.
-	 */
+	/* ADT clock-id 369; 200 MHz assumed gave 0.96 MHz on spi1, so 24 MHz in */
 	clk_spi: clock-spi {
 		compatible = "fixed-clock";
 		#clock-cells = <0>;
-		clock-frequency = <200000000>;
+		clock-frequency = <24000000>;
 	};
 
 	memory@800000000 {
