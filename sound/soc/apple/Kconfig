@@ -9,4 +9,13 @@ config SND_SOC_APPLE_MCA
 	  This option enables an ASoC platform driver for MCA peripherals found
 	  on Apple Silicon SoCs.
 
+config SND_SOC_APPLE_D431
+	tristate "Apple D431 (iPhone 11 Pro Max) sound card"
+	depends on SND_SOC_APPLE_MCA && APPLE_SIO && I2C && SPI
+	select COMMON_CLK_APPLE_NCO
+	select SND_SOC_CS35L27
+	select SND_SOC_CS42L77
+	help
+	  Sound card for the top speaker of the iPhone 11 Pro Max.
+
 endmenu
