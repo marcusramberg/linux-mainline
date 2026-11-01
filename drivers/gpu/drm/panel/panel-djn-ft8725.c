@@ -21,6 +21,7 @@
 struct ft8725 {
 	struct drm_panel panel;
 	struct mipi_dsi_device *dsi;
+	struct backlight_device *bl;
 	/* lk leaves it on; only wake it again after we put it to sleep */
 	bool asleep;
 };
@@ -42,16 +43,21 @@ static int ft8725_prepare(struct drm_panel *panel)
 	mipi_dsi_msleep(&dsi_ctx, 120);
 	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
 	mipi_dsi_msleep(&dsi_ctx, 20);
-	if (!dsi_ctx.accum_err)
-		ctx->asleep = false;
+	if (dsi_ctx.accum_err)
+		return dsi_ctx.accum_err;
 
-	return dsi_ctx.accum_err;
+	ctx->asleep = false;
+
+	return backlight_enable(ctx->bl);
 }
 
 static int ft8725_unprepare(struct drm_panel *panel)
 {
 	struct ft8725 *ctx = to_ft8725(panel);
 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
+
+	/* the LED driver keeps its level through sleep in */
+	backlight_disable(ctx->bl);
 
 	mipi_dsi_dcs_set_display_off_multi(&dsi_ctx);
 	mipi_dsi_msleep(&dsi_ctx, 20);
@@ -121,7 +127,6 @@ static int ft8725_probe(struct mipi_dsi_device *dsi)
 		.brightness = 1240,
 		.max_brightness = 2047,
 	};
-	struct backlight_device *bl;
 	struct ft8725 *ctx;
 	int ret;
 
@@ -140,10 +145,10 @@ static int ft8725_probe(struct mipi_dsi_device *dsi)
 
 	ctx->panel.prepare_prev_first = true;
 
-	bl = devm_backlight_device_register(dev, dev_name(dev), dev, dsi,
-					    &ft8725_bl_ops, &props);
-	if (IS_ERR(bl))
-		return dev_err_probe(dev, PTR_ERR(bl), "Failed to register backlight\n");
+	ctx->bl = devm_backlight_device_register(dev, dev_name(dev), dev, dsi,
+						 &ft8725_bl_ops, &props);
+	if (IS_ERR(ctx->bl))
+		return dev_err_probe(dev, PTR_ERR(ctx->bl), "Failed to register backlight\n");
 
 	drm_panel_add(&ctx->panel);
 
