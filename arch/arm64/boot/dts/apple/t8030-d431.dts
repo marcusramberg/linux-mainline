@@ -21,6 +21,15 @@
 		bluetooth0 = &bluetooth0;
 	};
 
+	sound {
+		compatible = "apple,d431-sound";
+		apple,mca = <&mca>;
+		apple,speaker-amp = <&amp_top>;
+		apple,codec = <&codec>;
+		reg = <0x2 0x3d284068 0x0 0x10>, <0x2 0x4a870000 0x0 0x8000>;
+		reg-names = "aop-ps", "aop-mca";
+	};
+
 	chosen {
 		#address-cells = <2>;
 		#size-cells = <2>;
@@ -129,5 +138,48 @@
 		/* Filled from the Apple Device Tree by m1n1. */
 		local-bd-address = [00 00 00 00 00 00];
 		brcm,board-type = "apple,tala";
+	};
+};
+
+&sio_dart {
+	status = "okay";
+};
+
+&sio_mbox {
+	status = "okay";
+};
+
+&sio {
+	status = "okay";
+};
+
+&mca {
+	/* Port 5, generator 5, pin 0: the ADT's mclk-config for mca5b */
+	apple,mclk-out = <5 5 0>;
+	status = "okay";
+};
+
+&i2c2 {
+	status = "okay";
+
+	/* top speaker; the bottom one is AOP-driven */
+	amp_top: amplifier@40 {
+		compatible = "cirrus,cs35l27";
+		reg = <0x40>;
+		reset-gpios = <&pinctrl_ap 109 GPIO_ACTIVE_LOW>;
+		#sound-dai-cells = <0>;
+	};
+};
+
+&spi3 {
+	cs-gpios = <&pinctrl_ap 66 GPIO_ACTIVE_LOW>;
+	status = "okay";
+
+	codec: codec@0 {
+		compatible = "cirrus,cs42l77";
+		reg = <0>;
+		/* bring-up ran at 1.4 MHz; faster is unproven */
+		spi-max-frequency = <1500000>;
+		reset-gpios = <&pinctrl_aop 20 GPIO_ACTIVE_LOW>;
 	};
 };
