@@ -799,6 +799,13 @@ config SND_SOC_CS35L27
 	  Enable support for the Cirrus Logic CS35L27 speaker amplifier
 	  found in Apple iPhones.
 
+config SND_SOC_CS42L77
+	tristate "Cirrus Logic CS42L77 CODEC"
+	depends on SPI
+	help
+	  Enable the speaker bus clocks of the Cirrus Logic CS42L77 codec
+	  found in Apple iPhones.
+
 config SND_SOC_CS35L32
 	tristate "Cirrus Logic CS35L32 CODEC"
 	depends on I2C
