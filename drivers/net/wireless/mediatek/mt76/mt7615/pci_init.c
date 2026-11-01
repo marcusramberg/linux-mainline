@@ -96,6 +96,9 @@ int mt7615_register_device(struct mt7615_dev *dev)
 	if (ret)
 		return ret;
 
+	if (is_mt6768(&dev->mt76))
+		mt6768_fixup_caps(dev);
+
 	ret = mt7615_thermal_init(dev);
 	if (ret)
 		return ret;

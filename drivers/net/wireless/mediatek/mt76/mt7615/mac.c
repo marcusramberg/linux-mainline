@@ -931,7 +931,9 @@ int mt7615_mac_write_txwi(struct mt7615_dev *dev, __le32 *txwi,
 	}
 	txwi[2] = cpu_to_le32(val);
 
-	if (!(info->flags & IEEE80211_TX_CTL_AMPDU))
+	/* its firmware sets up TX BA sessions itself */
+	if (!(info->flags & IEEE80211_TX_CTL_AMPDU) &&
+	    !(is_mt6768(&dev->mt76) && ieee80211_is_data_qos(fc)))
 		txwi[2] |= cpu_to_le32(MT_TXD2_BA_DISABLE);
 
 	txwi[4] = 0;

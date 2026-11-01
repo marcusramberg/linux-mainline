@@ -1423,6 +1423,10 @@ mt6768_sta_state(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	if (vif->type != NL80211_IFTYPE_STATION || sta->tdls)
 		return mt76_sta_state(hw, vif, sta, old_state, new_state);
 
+	/* our association request is built from the band caps after this */
+	if (old_state == IEEE80211_STA_NOTEXIST)
+		mt6768_fixup_caps(dev);
+
 	if (old_state == IEEE80211_STA_AUTH && new_state == IEEE80211_STA_ASSOC)
 		msta->assoc = true;
 	else if (old_state == IEEE80211_STA_ASSOC &&

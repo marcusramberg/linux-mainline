@@ -117,6 +117,10 @@ void mt7615_mcu_fill_msg(struct mt7615_dev *dev, struct sk_buff *skb,
 		dev_info(dev->mt76.dev, "DBG cmd %08x seq %d len %d: %*ph\n", cmd, seq,
 			 skb->len - txd_len, min_t(int, skb->len - txd_len, 32),
 			 skb->data + txd_len);
+	if (is_mt6768(&dev->mt76) &&
+	    (cmd == MCU_CE_CMD(SET_BSS_INFO) || cmd == MCU_CE_CMD(UPDATE_STA_RECORD)))
+		print_hex_dump(KERN_INFO, "DBG full ", DUMP_PREFIX_OFFSET, 32, 1,
+			       skb->data + txd_len, skb->len - txd_len, false);
 	mcu_txd = (struct mt7615_mcu_txd *)txd;
 	mcu_txd->len = cpu_to_le16(skb->len - sizeof(mcu_txd->txd));
 	mcu_txd->pq_id = cpu_to_le16(MCU_PQ_ID(MT_TX_PORT_IDX_MCU, q_idx));
@@ -1477,6 +1481,8 @@ mt6768_mcu_add_bss(struct mt7615_phy *phy, struct ieee80211_vif *vif,
 		.conn_state = 1,
 		.op_mode = vif->type == NL80211_IFTYPE_STATION ? 0 : 2,
 		.ap_sta_idx = 0xfe,
+		/* WPA2-PSK / CCMP as gen4m sends them; the firmware tunes by them */
+		.auth_mode = mvif->mt76.cipher ? 7 : 0,
 		.enc_status = mvif->mt76.cipher ? 6 : 1,
 		.ap_mode = vif->type == NL80211_IFTYPE_AP,
 		.bmc_wlan_idx = 0xff,
@@ -1902,6 +1908,65 @@ static int mt6768_mcu_set_pwr_limit(struct mt7615_dev *dev)
 	return ret;
 }
 
+/* gen4m's wifi.cfg defaults (wlanFeatureToFw), as the vendor driver sends them */
+static const char * const mt6768_customer_cfg[][2] = {
+	{ "AdapScan", "0x0" }, { "WmmParamCwMax", "10" },
+	{ "WmmParamCwMin", "4" }, { "WmmParamAifsN", "3" },
+	{ "WmmParamTxOp", "160" }, { "WmmParamCfgEn", "1" },
+	{ "LowLatencyModeScan", "0" }, { "PerfIndicatorEn", "1" },
+	{ "DbdcMode", "0x0" }, { "EdccaTh2gBw20", "0xFFBA" },
+	{ "EdccaTh2gBw40", "0xFFAF" }, { "EdccaTh5gBw20", "0xFFB8" },
+	{ "EdccaTh5gBw40", "0xFFBB" }, { "EdccaTh5gBw80", "0xFFBE" },
+	{ "VhtIeIn2G", "1" }, { "Sta2gBw", "1" }, { "P2p2gBw", "1" },
+	{ "NetifStopTh", "1024" }, { "5gNetifStopTh", "1024" },
+	{ "2gNetifStopTh", "1024" }, { "DisGTKCipherCheck", "1" },
+	{ "StaVHT", "0x1" }, { "ApVHT", "0x1" }, { "P2pGoVHT", "0x1" },
+	{ "P2pGcVHT", "0x1" }, { "Nss", "0x1" }, { "LdpcTx", "0x0" },
+	{ "LdpcRx", "0x0" }, { "StbcTx", "0x0" }, { "StbcRx", "0x1" },
+};
+
+static int mt6768_mcu_set_customer_cfg(struct mt7615_dev *dev)
+{
+	struct {
+		__le32 version;
+		__le32 type;
+		__le16 num;
+		__le16 len;
+		struct {
+			u8 type;
+			u8 key_len;
+			__le16 value_len;
+			char key[32];
+			char value[32];
+		} __packed item[4];
+	} __packed req;
+	int i, n, ret;
+
+	for (i = 0; i < ARRAY_SIZE(mt6768_customer_cfg); i += n) {
+		n = min_t(int, ARRAY_SIZE(mt6768_customer_cfg) - i, 4);
+		memset(&req, 0, sizeof(req));
+		req.type = cpu_to_le32(1);
+		req.num = cpu_to_le16(n);
+		req.len = cpu_to_le16(n * sizeof(req.item[0]));
+		for (int j = 0; j < n; j++) {
+			const char *k = mt6768_customer_cfg[i + j][0];
+			const char *v = mt6768_customer_cfg[i + j][1];
+
+			req.item[j].type = 3;
+			req.item[j].key_len = strlen(k);
+			req.item[j].value_len = cpu_to_le16(strlen(v));
+			strscpy(req.item[j].key, k);
+			strscpy(req.item[j].value, v);
+		}
+		ret = mt76_mcu_send_msg(&dev->mt76, MCU_CE_CMD(SET_CUSTOMER_CFG),
+					&req, sizeof(req), false);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
 int mt6768_mcu_init_settings(struct mt7615_dev *dev)
 {
 	struct {
@@ -1955,6 +2020,10 @@ int mt6768_mcu_init_settings(struct mt7615_dev *dev)
 		return ret;
 
 	ret = mt7615_mcu_set_eeprom(dev);
+	if (ret)
+		return ret;
+
+	ret = mt6768_mcu_set_customer_cfg(dev);
 	if (ret || !dbg_rxf)
 		return ret;
 

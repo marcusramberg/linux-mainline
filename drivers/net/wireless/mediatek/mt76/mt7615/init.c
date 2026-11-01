@@ -184,6 +184,33 @@ mt7615_mac_init(struct mt7615_dev *dev)
 	mt7615_mcu_set_rx_hdr_trans_blacklist(dev);
 }
 
+static int dbg_nocap;
+module_param(dbg_nocap, int, 0644);
+
+void mt6768_fixup_caps(struct mt7615_dev *dev)
+{
+	/* the vendor driver configures it with LdpcRx=0 */
+	dev->mphy.sband_2g.sband.ht_cap.cap &= ~IEEE80211_HT_CAP_LDPC_CODING;
+	dev->mphy.sband_5g.sband.ht_cap.cap &= ~IEEE80211_HT_CAP_LDPC_CODING;
+	dev->mphy.sband_5g.sband.vht_cap.cap &= ~IEEE80211_VHT_CAP_RXLDPC;
+	if (dbg_nocap & 1) {
+		dev->mphy.sband_2g.sband.ht_cap.cap &= ~IEEE80211_HT_CAP_RX_STBC;
+		dev->mphy.sband_5g.sband.ht_cap.cap &= ~IEEE80211_HT_CAP_RX_STBC;
+		dev->mphy.sband_5g.sband.vht_cap.cap &= ~IEEE80211_VHT_CAP_RXSTBC_MASK;
+	}
+	if (dbg_nocap & 2) {
+		dev->mphy.sband_2g.sband.ht_cap.cap &= ~(IEEE80211_HT_CAP_SGI_20 | IEEE80211_HT_CAP_SGI_40);
+		dev->mphy.sband_5g.sband.ht_cap.cap &= ~(IEEE80211_HT_CAP_SGI_20 | IEEE80211_HT_CAP_SGI_40);
+		dev->mphy.sband_5g.sband.vht_cap.cap &= ~(IEEE80211_VHT_CAP_SHORT_GI_80 | IEEE80211_VHT_CAP_SHORT_GI_160);
+	}
+	dev_info(dev->mt76.dev, "DBG caps %ps 2g %04x 5g %04x vht %08x bands %px %px\n",
+		 __builtin_return_address(0),
+		 dev->mphy.sband_2g.sband.ht_cap.cap, dev->mphy.sband_5g.sband.ht_cap.cap,
+		 dev->mphy.sband_5g.sband.vht_cap.cap,
+		 dev->mphy.hw->wiphy->bands[0], dev->mphy.hw->wiphy->bands[1]);
+}
+EXPORT_SYMBOL_GPL(mt6768_fixup_caps);
+
 static void
 mt7615_check_offload_capability(struct mt7615_dev *dev)
 {
@@ -193,10 +220,7 @@ mt7615_check_offload_capability(struct mt7615_dev *dev)
 	if (is_mt6768(&dev->mt76)) {
 		/* the firmware tracks beacons and reports their loss */
 		ieee80211_hw_set(hw, CONNECTION_MONITOR);
-		/* the vendor driver configures it with LdpcRx=0 */
-		dev->mphy.sband_2g.sband.ht_cap.cap &= ~IEEE80211_HT_CAP_LDPC_CODING;
-		dev->mphy.sband_5g.sband.ht_cap.cap &= ~IEEE80211_HT_CAP_LDPC_CODING;
-		dev->mphy.sband_5g.sband.vht_cap.cap &= ~IEEE80211_VHT_CAP_RXLDPC;
+		mt6768_fixup_caps(dev);
 		wiphy->flags &= ~WIPHY_FLAG_4ADDR_STATION;
 		wiphy->max_sched_scan_plan_interval = 0;
 		wiphy->max_sched_scan_ie_len = 0;
